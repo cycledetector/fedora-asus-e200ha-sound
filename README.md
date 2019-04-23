@@ -55,7 +55,7 @@ make menuconfig
 Now you are ready to compile. You can either use ```fast-build.sh```:
 ```
 fedpkg srpm
-scripts/fast-build.sh x86_64 kernel-{the version of the kernel to be compiled}.src.rpm
+./scripts/fast-build.sh x86_64 kernel-{the version of the kernel to be compiled and buildid}.src.rpm
 ```
 to build the kernel without debugging information, perf or tools. Otherwise execute:
 ```
