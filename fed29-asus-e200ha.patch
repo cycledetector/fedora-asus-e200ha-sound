@@ -1,0 +1,3754 @@
+diff --git a/0001-Enable-sound-on-asus-e200ha.patch b/0001-Enable-sound-on-asus-e200ha.patch
+new file mode 100644
+index 000000000..1510aade2
+--- /dev/null
++++ b/0001-Enable-sound-on-asus-e200ha.patch
+@@ -0,0 +1,3720 @@
++From 8460fcb2c3a0b13a95b2857cfc5912889d9ef70f Mon Sep 17 00:00:00 2001
++From: cycledetector <cycledetector@localhost>
++Date: Mon, 22 Apr 2019 02:23:28 +0300
++Subject: [PATCH] Enable sound on asus e200ha
++
++---
++ .../devicetree/bindings/sound/cx2072x.txt     |   36 +
++ sound/soc/codecs/Kconfig                      |    5 +
++ sound/soc/codecs/Makefile                     |    2 +
++ sound/soc/codecs/cx2072x.c                    | 2868 +++++++++++++++++
++ sound/soc/codecs/cx2072x.h                    |  327 ++
++ sound/soc/intel/boards/Kconfig                |   11 +
++ sound/soc/intel/boards/Makefile               |    2 +
++ sound/soc/intel/boards/cht_cx2072x.c          |  336 ++
++ .../intel/common/soc-acpi-intel-cht-match.c   |    9 +
++ 9 files changed, 3596 insertions(+)
++ create mode 100644 Documentation/devicetree/bindings/sound/cx2072x.txt
++ create mode 100644 sound/soc/codecs/cx2072x.c
++ create mode 100644 sound/soc/codecs/cx2072x.h
++ create mode 100644 sound/soc/intel/boards/cht_cx2072x.c
++
++diff --git a/Documentation/devicetree/bindings/sound/cx2072x.txt b/Documentation/devicetree/bindings/sound/cx2072x.txt
++new file mode 100644
++index 000000000000..05ddf7c0320e
++--- /dev/null
+++++ b/Documentation/devicetree/bindings/sound/cx2072x.txt
++@@ -0,0 +1,36 @@
+++Conexant CX20721/CX20723/CX7601 audio CODEC
+++
+++The devices support I2C only.
+++
+++Required properties:
+++
+++  - compatible : One of "cnxt,cx20721", "cnxt,cx20723", "cnxt,cx7601".
+++
+++  - reg : the I2C address of the device for I2C, it should be <0x33>
+++
+++Optional properties:
+++
+++  - clocks : phandle and clock specifier for codec MCLK.
+++  - clock-names : Clock name string for 'clocks' attribute, should be "mclk".
+++
+++CODEC output pins:
+++  "PORTA"	- Headphone
+++  "PORTG"	- Class-D output
+++  "PORTE"	- Line out
+++
+++CODEC output pins for Conexant DSP chip:
+++  "AEC REF"	- AEC reference signal
+++
+++CODEC input pins:
+++  "PORTB"	- Analog mic
+++  "PORTC"	- Digital mic
+++  "PORTD"	- Headset mic
+++
+++Example:
+++
+++codec: cx20721@33 {
+++	compatible = "cnxt,cx20721";
+++	reg = <0x33>;
+++	clocks = <&sco>;
+++	clock-names = "mclk";
+++};
++diff --git a/sound/soc/codecs/Kconfig b/sound/soc/codecs/Kconfig
++index 62bdb7e333b8..14cc60069f73 100644
++--- a/sound/soc/codecs/Kconfig
+++++ b/sound/soc/codecs/Kconfig
++@@ -69,6 +69,7 @@ config SND_SOC_ALL_CODECS
++ 	select SND_SOC_CS47L24 if MFD_CS47L24
++ 	select SND_SOC_CS53L30 if I2C
++ 	select SND_SOC_CX20442 if TTY
+++	select SND_SOC_CX2072X if I2C
++ 	select SND_SOC_DA7210 if SND_SOC_I2C_AND_SPI
++ 	select SND_SOC_DA7213 if I2C
++ 	select SND_SOC_DA7218 if I2C
++@@ -559,6 +560,10 @@ config SND_SOC_CX20442
++ 	tristate
++ 	depends on TTY
++ 
+++config SND_SOC_CX2072X
+++	tristate "Conexant CX2072X CODEC"
+++	depends on I2C
+++
++ config SND_SOC_JZ4740_CODEC
++ 	select REGMAP_MMIO
++ 	tristate
++diff --git a/sound/soc/codecs/Makefile b/sound/soc/codecs/Makefile
++index 66f55d185620..d70769b29e39 100644
++--- a/sound/soc/codecs/Makefile
+++++ b/sound/soc/codecs/Makefile
++@@ -64,6 +64,7 @@ snd-soc-cs4349-objs := cs4349.o
++ snd-soc-cs47l24-objs := cs47l24.o
++ snd-soc-cs53l30-objs := cs53l30.o
++ snd-soc-cx20442-objs := cx20442.o
+++snd-soc-cx2072x-objs := cx2072x.o
++ snd-soc-da7210-objs := da7210.o
++ snd-soc-da7213-objs := da7213.o
++ snd-soc-da7218-objs := da7218.o
++@@ -330,6 +331,7 @@ obj-$(CONFIG_SND_SOC_CS4349)	+= snd-soc-cs4349.o
++ obj-$(CONFIG_SND_SOC_CS47L24)	+= snd-soc-cs47l24.o
++ obj-$(CONFIG_SND_SOC_CS53L30)	+= snd-soc-cs53l30.o
++ obj-$(CONFIG_SND_SOC_CX20442)	+= snd-soc-cx20442.o
+++obj-$(CONFIG_SND_SOC_CX2072X)	+= snd-soc-cx2072x.o
++ obj-$(CONFIG_SND_SOC_DA7210)	+= snd-soc-da7210.o
++ obj-$(CONFIG_SND_SOC_DA7213)	+= snd-soc-da7213.o
++ obj-$(CONFIG_SND_SOC_DA7218)	+= snd-soc-da7218.o
++diff --git a/sound/soc/codecs/cx2072x.c b/sound/soc/codecs/cx2072x.c
++new file mode 100644
++index 000000000000..45f3a30c4427
++--- /dev/null
+++++ b/sound/soc/codecs/cx2072x.c
++@@ -0,0 +1,2868 @@
+++/*
+++ * ALSA SoC CX20721/CX20723 codec driver
+++ *
+++ * Copyright:	(C) 2017 Conexant Systems, Inc.
+++ * Author:	Simon Ho, <Simon.ho@conexant.com>
+++ *
+++ * This program is free software; you can redistribute it and/or modify
+++ * it under the terms of the GNU General Public License version 2 as
+++ * published by the Free Software Foundation.
+++ *
+++ *************************************************************************
+++ *  Modified Date:  10/15/18
+++ *  File Version:   4.4.65
+++ ************************************************************************/
+++#define DEBUG
+++#define DRIVER_VERSION "4.4.66"
+++/*#define ENABLE_MIC_POP_WA*/
+++#define CXDBG_REG_DUMP
+++
+++#include <linux/module.h>
+++#include <linux/moduleparam.h>
+++#include <linux/init.h>
+++#include <linux/delay.h>
+++#include <linux/pm.h>
+++#include <linux/platform_device.h>
+++#include <linux/of_gpio.h>
+++#include <linux/gpio.h>
+++#include <linux/slab.h>
+++#include <linux/i2c.h>
+++#include <linux/firmware.h>
+++#include <linux/regmap.h>
+++#include <linux/proc_fs.h>
+++#include <linux/interrupt.h>
+++#include <linux/irq.h>
+++#include <linux/clk.h>
+++#include <linux/acpi.h>
+++#include <sound/core.h>
+++#include <sound/pcm.h>
+++#include <sound/pcm_params.h>
+++#include <sound/soc.h>
+++#include <sound/soc-dapm.h>
+++#include <sound/initval.h>
+++#include <sound/tlv.h>
+++#include <sound/jack.h>
+++#include "cx2072x.h"
+++
+++#define PLL_OUT_HZ_48 (1024 * 3 * 48000)
+++#define CX2072X_REV_A2 0x00100002
+++#define BITS_PER_SLOT 8
+++
+++#define CX2072X_PLBK_EQ_BAND_NUM 7
+++#define CX2072X_PLBK_EQ_COEF_LEN 11
+++#define CX2072X_PLBK_DRC_PARM_LEN 9
+++#define CX2072X_CLASSD_AMP_LEN 6
+++
+++#ifdef CXDBG_REG_DUMP
+++#define _REG(_name_, _size_, _access_, _volatile_) { \
+++	 #_name_, _name_, _size_ | _access_ | _volatile_}
+++
+++struct CX2072X_REG_DEF {
+++	const char  *name;
+++	unsigned int addr;
+++	unsigned int attr;
+++};
+++
+++#define WO 0x0100
+++#define RO 0x0200
+++#define RW 0x0300
+++#define VO 0x8000
+++#define NV 0x0000
+++
+++#if (KERNEL_VERSION(4, 2, 0) > LINUX_VERSION_CODE)
+++static int cx2072x_set_bias_level(struct snd_soc_codec *codec,
+++				  enum snd_soc_bias_level level);
+++#endif
+++
+++static const struct CX2072X_REG_DEF cx2072x_regs[] = {
+++	_REG(CX2072X_VENDOR_ID,			     4, RO, VO),
+++	_REG(CX2072X_REVISION_ID,		     4, RO, VO),
+++	_REG(CX2072X_CURRENT_BCLK_FREQUENCY,	     4, RO, VO),
+++	_REG(CX2072X_AFG_POWER_STATE,		     1, RW, NV),
+++	_REG(CX2072X_UM_RESPONSE,		     1, RW, NV),
+++	_REG(CX2072X_GPIO_DATA,			     1, RW, NV),
+++	_REG(CX2072X_GPIO_ENABLE,		     1, RW, NV),
+++	_REG(CX2072X_GPIO_DIRECTION,		     1, RW, NV),
+++	_REG(CX2072X_GPIO_WAKE,			     1, RW, NV),
+++	_REG(CX2072X_GPIO_UM_ENABLE,		     1, RW, NV),
+++	_REG(CX2072X_GPIO_STICKY_MASK,		     1, RW, NV),
+++	_REG(CX2072X_AFG_FUNCTION_RESET,	     1, WO, NV),
+++	_REG(CX2072X_DAC1_CONVERTER_FORMAT,	     2, RW, NV),
+++	_REG(CX2072X_DAC1_AMP_GAIN_RIGHT,	     1, RW, NV),
+++	_REG(CX2072X_DAC1_AMP_GAIN_LEFT,	     1, RW, NV),
+++	_REG(CX2072X_DAC1_POWER_STATE,		     1, RW, NV),
+++	_REG(CX2072X_DAC1_CONVERTER_STREAM_CHANNEL,  1, RW, NV),
+++	_REG(CX2072X_DAC1_EAPD_ENABLE,		     1, RW, NV),
+++	_REG(CX2072X_DAC2_CONVERTER_FORMAT,	     2, RW, NV),
+++	_REG(CX2072X_DAC2_AMP_GAIN_RIGHT,	     1, RW, NV),
+++	_REG(CX2072X_DAC2_AMP_GAIN_LEFT,	     1, RW, NV),
+++	_REG(CX2072X_DAC2_POWER_STATE,		     1, RW, NV),
+++	_REG(CX2072X_DAC2_CONVERTER_STREAM_CHANNEL,  1, RW, NV),
+++	_REG(CX2072X_ADC1_CONVERTER_FORMAT,	     2, RW, NV),
+++	_REG(CX2072X_ADC1_AMP_GAIN_RIGHT_0,	     1, RW, NV),
+++	_REG(CX2072X_ADC1_AMP_GAIN_LEFT_0,	     1, RW, NV),
+++	_REG(CX2072X_ADC1_AMP_GAIN_RIGHT_1,	     1, RW, NV),
+++	_REG(CX2072X_ADC1_AMP_GAIN_LEFT_1,	     1, RW, NV),
+++	_REG(CX2072X_ADC1_AMP_GAIN_RIGHT_2,	     1, RW, NV),
+++	_REG(CX2072X_ADC1_AMP_GAIN_LEFT_2,	     1, RW, NV),
+++	_REG(CX2072X_ADC1_AMP_GAIN_RIGHT_3,	     1, RW, NV),
+++	_REG(CX2072X_ADC1_AMP_GAIN_LEFT_3,	     1, RW, NV),
+++	_REG(CX2072X_ADC1_AMP_GAIN_RIGHT_4,	     1, RW, NV),
+++	_REG(CX2072X_ADC1_AMP_GAIN_LEFT_4,	     1, RW, NV),
+++	_REG(CX2072X_ADC1_AMP_GAIN_RIGHT_5,	     1, RW, NV),
+++	_REG(CX2072X_ADC1_AMP_GAIN_LEFT_5,	     1, RW, NV),
+++	_REG(CX2072X_ADC1_AMP_GAIN_RIGHT_6,	     1, RW, NV),
+++	_REG(CX2072X_ADC1_AMP_GAIN_LEFT_6,	     1, RW, NV),
+++	_REG(CX2072X_ADC1_CONNECTION_SELECT_CONTROL, 1, RW, NV),
+++	_REG(CX2072X_ADC1_POWER_STATE,		     1, RW, NV),
+++	_REG(CX2072X_ADC1_CONVERTER_STREAM_CHANNEL,  1, RW, NV),
+++	_REG(CX2072X_ADC2_CONVERTER_FORMAT,	     2, WO, NV),
+++	_REG(CX2072X_ADC2_AMP_GAIN_RIGHT_0,	     1, RW, NV),
+++	_REG(CX2072X_ADC2_AMP_GAIN_LEFT_0,	     1, RW, NV),
+++	_REG(CX2072X_ADC2_AMP_GAIN_RIGHT_1,	     1, RW, NV),
+++	_REG(CX2072X_ADC2_AMP_GAIN_LEFT_1,	     1, RW, NV),
+++	_REG(CX2072X_ADC2_AMP_GAIN_RIGHT_2,	     1, RW, NV),
+++	_REG(CX2072X_ADC2_AMP_GAIN_LEFT_2,	     1, RW, NV),
+++	_REG(CX2072X_ADC2_CONNECTION_SELECT_CONTROL, 1, RW, NV),
+++	_REG(CX2072X_ADC2_POWER_STATE,		     1, RW, NV),
+++	_REG(CX2072X_ADC2_CONVERTER_STREAM_CHANNEL,  1, RW, NV),
+++	_REG(CX2072X_PORTA_CONNECTION_SELECT_CTRL,   1, RW, NV),
+++	_REG(CX2072X_PORTA_POWER_STATE,		     1, RW, NV),
+++	_REG(CX2072X_PORTA_PIN_CTRL,		     1, RW, NV),
+++	_REG(CX2072X_PORTA_UNSOLICITED_RESPONSE,     1, RW, NV),
+++	_REG(CX2072X_PORTA_PIN_SENSE,		     4, RO, VO),
+++	_REG(CX2072X_PORTA_EAPD_BTL,		     1, RW, NV),
+++	_REG(CX2072X_PORTB_POWER_STATE,		     1, RW, NV),
+++	_REG(CX2072X_PORTB_PIN_CTRL,		     1, RW, NV),
+++	_REG(CX2072X_PORTB_UNSOLICITED_RESPONSE,     1, RW, NV),
+++	_REG(CX2072X_PORTB_PIN_SENSE,		     4, RO, VO),
+++	_REG(CX2072X_PORTB_EAPD_BTL,		     1, RW, NV),
+++	_REG(CX2072X_PORTB_GAIN_RIGHT,		     1, RW, NV),
+++	_REG(CX2072X_PORTB_GAIN_LEFT,		     1, RW, NV),
+++	_REG(CX2072X_PORTC_POWER_STATE,		     1, RW, NV),
+++	_REG(CX2072X_PORTC_PIN_CTRL,		     1, RW, NV),
+++	_REG(CX2072X_PORTC_GAIN_RIGHT,		     1, RW, NV),
+++	_REG(CX2072X_PORTC_GAIN_LEFT,		     1, RW, NV),
+++	_REG(CX2072X_PORTD_POWER_STATE,		     1, RW, NV),
+++	_REG(CX2072X_PORTD_PIN_CTRL,		     1, RW, NV),
+++	_REG(CX2072X_PORTD_UNSOLICITED_RESPONSE,     1, RW, NV),
+++	_REG(CX2072X_PORTD_PIN_SENSE,		     4, RO, VO),
+++	_REG(CX2072X_PORTD_GAIN_RIGHT,		     1, RW, NV),
+++	_REG(CX2072X_PORTD_GAIN_LEFT,		     1, RW, NV),
+++	_REG(CX2072X_PORTE_CONNECTION_SELECT_CTRL,   1, RW, NV),
+++	_REG(CX2072X_PORTE_POWER_STATE,		     1, RW, NV),
+++	_REG(CX2072X_PORTE_PIN_CTRL,		     1, RW, NV),
+++	_REG(CX2072X_PORTE_UNSOLICITED_RESPONSE,     1, RW, NV),
+++	_REG(CX2072X_PORTE_PIN_SENSE,		     4, RO, VO),
+++	_REG(CX2072X_PORTE_EAPD_BTL,		     1, RW, NV),
+++	_REG(CX2072X_PORTE_GAIN_RIGHT,		     1, RW, NV),
+++	_REG(CX2072X_PORTE_GAIN_LEFT,		     1, RW, NV),
+++	_REG(CX2072X_PORTF_POWER_STATE,		     1, RW, NV),
+++	_REG(CX2072X_PORTF_PIN_CTRL,		     1, RW, NV),
+++	_REG(CX2072X_PORTF_UNSOLICITED_RESPONSE,     1, RW, NV),
+++	_REG(CX2072X_PORTF_PIN_SENSE,		     4, RO, VO),
+++	_REG(CX2072X_PORTF_GAIN_RIGHT,		     1, RW, NV),
+++	_REG(CX2072X_PORTF_GAIN_LEFT,		     1, RW, NV),
+++	_REG(CX2072X_PORTG_POWER_STATE,		     1, RW, NV),
+++	_REG(CX2072X_PORTG_PIN_CTRL,		     1, RW, NV),
+++	_REG(CX2072X_PORTG_CONNECTION_SELECT_CTRL,   1, RW, NV),
+++	_REG(CX2072X_PORTG_EAPD_BTL,		     1, RW, NV),
+++	_REG(CX2072X_PORTM_POWER_STATE,		     1, RW, NV),
+++	_REG(CX2072X_PORTM_PIN_CTRL,		     1, RW, NV),
+++	_REG(CX2072X_PORTM_CONNECTION_SELECT_CTRL,   1, RW, NV),
+++	_REG(CX2072X_PORTM_EAPD_BTL,		     1, RW, NV),
+++	_REG(CX2072X_MIXER_POWER_STATE,		     1, RW, NV),
+++	_REG(CX2072X_MIXER_GAIN_RIGHT_0,	     1, RW, NV),
+++	_REG(CX2072X_MIXER_GAIN_LEFT_0,		     1, WO, NV),
+++	_REG(CX2072X_MIXER_GAIN_RIGHT_1,	     1, RW, NV),
+++	_REG(CX2072X_MIXER_GAIN_LEFT_1,		     1, RW, NV),
+++	_REG(CX2072X_EQ_ENABLE_BYPASS,		     2, RW, NV),
+++	_REG(CX2072X_EQ_B0_COEFF,		     2, WO, VO),
+++	_REG(CX2072X_EQ_B1_COEFF,		     2, WO, VO),
+++	_REG(CX2072X_EQ_B2_COEFF,		     2, WO, VO),
+++	_REG(CX2072X_EQ_A1_COEFF,		     2, WO, VO),
+++	_REG(CX2072X_EQ_A2_COEFF,		     2, WO, VO),
+++	_REG(CX2072X_EQ_G_COEFF,		     1, WO, VO),
+++	_REG(CX2072X_EQ_BAND,			     1, WO, VO),
+++	_REG(CX2072X_SPKR_DRC_ENABLE_STEP,	     1, RW, NV),
+++	_REG(CX2072X_SPKR_DRC_CONTROL,		     4, RW, NV),
+++	_REG(CX2072X_SPKR_DRC_TEST,		     4, RW, NV),
+++	_REG(CX2072X_DIGITAL_BIOS_TEST0,	     4, RW, NV),
+++	_REG(CX2072X_DIGITAL_BIOS_TEST2,	     4, RW, NV),
+++	_REG(CX2072X_I2SPCM_CONTROL1,		     4, RW, NV),
+++	_REG(CX2072X_I2SPCM_CONTROL2,		     4, RW, NV),
+++	_REG(CX2072X_I2SPCM_CONTROL3,		     4, RW, NV),
+++	_REG(CX2072X_I2SPCM_CONTROL4,		     4, RW, NV),
+++	_REG(CX2072X_I2SPCM_CONTROL5,		     4, RW, NV),
+++	_REG(CX2072X_I2SPCM_CONTROL6,		     4, RW, NV),
+++	_REG(CX2072X_UM_INTERRUPT_CRTL_E,	     4, RW, NV),
+++	_REG(CX2072X_CODEC_TEST20,		     2, RW, NV),
+++	_REG(CX2072X_CODEC_TEST26,		     2, RW, NV),
+++	_REG(CX2072X_ANALOG_TEST4,		     2, RW, NV),
+++	_REG(CX2072X_ANALOG_TEST5,		     2, RW, NV),
+++	_REG(CX2072X_ANALOG_TEST6,		     2, WO, NV),
+++	_REG(CX2072X_ANALOG_TEST7,		     2, RW, NV),
+++	_REG(CX2072X_ANALOG_TEST8,		     2, RW, NV),
+++	_REG(CX2072X_ANALOG_TEST9,		     2, RW, NV),
+++	_REG(CX2072X_ANALOG_TEST10,		     2, RW, NV),
+++	_REG(CX2072X_ANALOG_TEST11,		     2, RW, NV),
+++	_REG(CX2072X_ANALOG_TEST12,		     2, RW, NV),
+++	_REG(CX2072X_ANALOG_TEST13,		     2, RW, NV),
+++	_REG(CX2072X_DIGITAL_TEST0,		     2, RW, NV),
+++	_REG(CX2072X_DIGITAL_TEST1,		     2, RW, NV),
+++	_REG(CX2072X_DIGITAL_TEST11,		     2, RW, NV),
+++	_REG(CX2072X_DIGITAL_TEST12,		     2, RW, NV),
+++	_REG(CX2072X_DIGITAL_TEST15,		     2, RW, NV),
+++	_REG(CX2072X_DIGITAL_TEST16,		     2, RW, NV),
+++	_REG(CX2072X_DIGITAL_TEST17,		     2, RW, NV),
+++	_REG(CX2072X_DIGITAL_TEST18,		     2, RW, NV),
+++	_REG(CX2072X_DIGITAL_TEST19,		     2, RW, NV),
+++	_REG(CX2072X_DIGITAL_TEST20,		     2, RW, NV),
+++};
+++#endif
+++
+++/* codec private data */
+++struct cx2072x_priv {
+++	struct regmap *regmap;
+++	struct clk *mclk;
+++	unsigned int mclk_rate;
+++	struct device *dev;
+++#if (KERNEL_VERSION(4, 17, 0) <= LINUX_VERSION_CODE)
+++	struct snd_soc_component *codec;
+++#else
+++	struct snd_soc_codec *codec;
+++#endif
+++	struct snd_soc_dai_driver *dai_drv;
+++	int is_biason;
+++	struct snd_soc_jack *jack;
+++	bool jack_detecting;
+++	bool jack_mic;
+++	int jack_mode;
+++	int jack_flips;
+++	int audsmt_enable;
+++	unsigned int bclk_ratio;
+++#ifdef ENABLE_MIC_POP_WA
+++	struct delayed_work mic_pop_workq;
+++#endif
+++	bool plbk_eq_en;
+++	bool plbk_eq_en_changed;
+++	bool plbk_eq_changed;
+++	u8 plbk_eq[2][CX2072X_PLBK_EQ_BAND_NUM][CX2072X_PLBK_EQ_COEF_LEN];
+++	int plbk_eq_channel;
+++	bool plbk_drc_en;
+++	bool plbk_drc_en_changed;
+++	bool plbk_drc_changed;
+++	bool pll_changed;
+++	bool i2spcm_changed;
+++	int sample_size;
+++	int frame_size;
+++	int sample_rate;
+++	unsigned int dai_fmt;
+++	int tdm_rx_mask;
+++	int tdm_tx_mask;
+++	int tdm_slot_width;
+++	int tdm_slots;
+++	u32 rev_id;
+++	bool en_aec_ref;
+++	u8 plbk_drc[CX2072X_PLBK_DRC_PARM_LEN];
+++	u8 classd_amp[CX2072X_CLASSD_AMP_LEN];
+++	struct mutex eq_coeff_lock; /* EQ DSP lock */
+++	struct mutex cache_only_lock; /* Cache only lock */
+++	bool codec_power_on;
+++	int num_chan_sel;
+++};
+++
+++/*
+++ * DAC/ADC Volume
+++ *
+++ * max : 74 :   0 dB
+++ * min :  0 : -74 dB ( in 1 dB step )
+++ */
+++static const DECLARE_TLV_DB_SCALE(adc_tlv, -7400, 100, 0);
+++static const DECLARE_TLV_DB_SCALE(dac_tlv, -7400, 100, 0);
+++static const DECLARE_TLV_DB_SCALE(boost_tlv, 0, 1200, 0);
+++
+++struct CX2072X_EQ_CTRL {
+++	u8 ch;
+++	u8 band;
+++};
+++
+++static DECLARE_TLV_DB_RANGE(hpf_tlv,
+++		0, 0, TLV_DB_SCALE_ITEM(120, 0, 0),
+++		1, 63, TLV_DB_SCALE_ITEM(30, 30, 0)
+++);
+++
+++/* Lookup table for PRE_DIV*/
+++static struct {
+++	unsigned int mclk;
+++	unsigned int div;
+++} MCLK_PRE_DIV[] = {
+++	{ 6144000, 1 },
+++	{ 12288000, 2 },
+++	{ 19200000, 3 },
+++	{ 26000000, 4 },
+++	{ 28224000, 5 },
+++	{ 36864000, 6 },
+++	{ 36864000, 7 },
+++	{ 48000000, 8 },
+++	{ 49152000, 8 },
+++};
+++
+++/*
+++ * cx2072x register cache.
+++ */
+++static const struct reg_default cx2072x_reg_defaults[] = {
+++	{ CX2072X_AFG_POWER_STATE, 0x00000003 },
+++	{ CX2072X_UM_RESPONSE, 0x00000000 },
+++	{ CX2072X_GPIO_DATA, 0x00000000 },
+++	{ CX2072X_GPIO_ENABLE, 0x00000000 },
+++	{ CX2072X_GPIO_DIRECTION, 0x00000000 },
+++	{ CX2072X_GPIO_WAKE, 0x00000000 },
+++	{ CX2072X_GPIO_UM_ENABLE, 0x00000000 },
+++	{ CX2072X_GPIO_STICKY_MASK, 0x00000000 },
+++	{ CX2072X_DAC1_CONVERTER_FORMAT, 0x00000031 },
+++	{ CX2072X_DAC1_AMP_GAIN_RIGHT, 0x0000004a },
+++	{ CX2072X_DAC1_AMP_GAIN_LEFT, 0x0000004a },
+++	{ CX2072X_DAC1_POWER_STATE, 0x00000433 },
+++	{ CX2072X_DAC1_CONVERTER_STREAM_CHANNEL, 0x00000000 },
+++	{ CX2072X_DAC1_EAPD_ENABLE, 0x00000000 },
+++	{ CX2072X_DAC2_CONVERTER_FORMAT, 0x00000031 },
+++	{ CX2072X_DAC2_AMP_GAIN_RIGHT, 0x0000004a },
+++	{ CX2072X_DAC2_AMP_GAIN_LEFT, 0x0000004a },
+++	{ CX2072X_DAC2_POWER_STATE, 0x00000433 },
+++	{ CX2072X_DAC2_CONVERTER_STREAM_CHANNEL, 0x00000000 },
+++	{ CX2072X_ADC1_CONVERTER_FORMAT, 0x00000031 },
+++	{ CX2072X_ADC1_AMP_GAIN_RIGHT_0, 0x0000004a },
+++	{ CX2072X_ADC1_AMP_GAIN_LEFT_0, 0x0000004a },
+++	{ CX2072X_ADC1_AMP_GAIN_RIGHT_1, 0x0000004a },
+++	{ CX2072X_ADC1_AMP_GAIN_LEFT_1, 0x0000004a },
+++	{ CX2072X_ADC1_AMP_GAIN_RIGHT_2, 0x0000004a },
+++	{ CX2072X_ADC1_AMP_GAIN_LEFT_2, 0x0000004a },
+++	{ CX2072X_ADC1_AMP_GAIN_RIGHT_3, 0x0000004a },
+++	{ CX2072X_ADC1_AMP_GAIN_LEFT_3, 0x0000004a },
+++	{ CX2072X_ADC1_AMP_GAIN_RIGHT_4, 0x0000004a },
+++	{ CX2072X_ADC1_AMP_GAIN_LEFT_4, 0x0000004a },
+++	{ CX2072X_ADC1_AMP_GAIN_RIGHT_5, 0x0000004a },
+++	{ CX2072X_ADC1_AMP_GAIN_LEFT_5, 0x0000004a },
+++	{ CX2072X_ADC1_AMP_GAIN_RIGHT_6, 0x0000004a },
+++	{ CX2072X_ADC1_AMP_GAIN_LEFT_6, 0x0000004a },
+++	{ CX2072X_ADC1_CONNECTION_SELECT_CONTROL, 0x00000003 },
+++	{ CX2072X_ADC1_POWER_STATE, 0x00000433 },
+++	{ CX2072X_ADC1_CONVERTER_STREAM_CHANNEL, 0x00000000 },
+++	{ CX2072X_ADC2_CONVERTER_FORMAT, 0x00000031 },
+++	{ CX2072X_ADC2_AMP_GAIN_RIGHT_0, 0x0000004a },
+++	{ CX2072X_ADC2_AMP_GAIN_LEFT_0, 0x0000004a },
+++	{ CX2072X_ADC2_AMP_GAIN_RIGHT_1, 0x0000004a },
+++	{ CX2072X_ADC2_AMP_GAIN_LEFT_1, 0x0000004a },
+++	{ CX2072X_ADC2_AMP_GAIN_RIGHT_2, 0x0000004a },
+++	{ CX2072X_ADC2_AMP_GAIN_LEFT_2, 0x0000004a },
+++	{ CX2072X_ADC2_CONNECTION_SELECT_CONTROL, 0x00000000 },
+++	{ CX2072X_ADC2_POWER_STATE, 0x00000433 },
+++	{ CX2072X_ADC2_CONVERTER_STREAM_CHANNEL, 0x00000000 },
+++	{ CX2072X_PORTA_CONNECTION_SELECT_CTRL, 0x00000000 },
+++	{ CX2072X_PORTA_POWER_STATE, 0x00000433 },
+++	{ CX2072X_PORTA_PIN_CTRL, 0x000000c0 },
+++	{ CX2072X_PORTA_UNSOLICITED_RESPONSE, 0x00000000 },
+++	{ CX2072X_PORTA_PIN_SENSE, 0x00000000 },
+++	{ CX2072X_PORTA_EAPD_BTL, 0x00000002 },
+++	{ CX2072X_PORTB_POWER_STATE, 0x00000433 },
+++	{ CX2072X_PORTB_PIN_CTRL, 0x00000000 },
+++	{ CX2072X_PORTB_UNSOLICITED_RESPONSE, 0x00000000 },
+++	{ CX2072X_PORTB_PIN_SENSE, 0x00000000 },
+++	{ CX2072X_PORTB_EAPD_BTL, 0x00000002 },
+++	{ CX2072X_PORTB_GAIN_RIGHT, 0x00000000 },
+++	{ CX2072X_PORTB_GAIN_LEFT, 0x00000000 },
+++	{ CX2072X_PORTC_POWER_STATE, 0x00000433 },
+++	{ CX2072X_PORTC_PIN_CTRL, 0x00000000 },
+++	{ CX2072X_PORTC_GAIN_RIGHT, 0x00000000 },
+++	{ CX2072X_PORTC_GAIN_LEFT, 0x00000000 },
+++	{ CX2072X_PORTD_POWER_STATE, 0x00000433 },
+++	{ CX2072X_PORTD_PIN_CTRL, 0x00000020 },
+++	{ CX2072X_PORTD_UNSOLICITED_RESPONSE, 0x00000000 },
+++	{ CX2072X_PORTD_PIN_SENSE, 0x00000000 },
+++	{ CX2072X_PORTD_GAIN_RIGHT, 0x00000000 },
+++	{ CX2072X_PORTD_GAIN_LEFT, 0x00000000 },
+++	{ CX2072X_PORTE_CONNECTION_SELECT_CTRL, 0x00000000 },
+++	{ CX2072X_PORTE_POWER_STATE, 0x00000433 },
+++	{ CX2072X_PORTE_PIN_CTRL, 0x00000040 },
+++	{ CX2072X_PORTE_UNSOLICITED_RESPONSE, 0x00000000 },
+++	{ CX2072X_PORTE_PIN_SENSE, 0x00000000 },
+++	{ CX2072X_PORTE_EAPD_BTL, 0x00000002 },
+++	{ CX2072X_PORTE_GAIN_RIGHT, 0x00000000 },
+++	{ CX2072X_PORTE_GAIN_LEFT, 0x00000000 },
+++	{ CX2072X_PORTF_POWER_STATE, 0x00000433 },
+++	{ CX2072X_PORTF_PIN_CTRL, 0x00000000 },
+++	{ CX2072X_PORTF_UNSOLICITED_RESPONSE, 0x00000000 },
+++	{ CX2072X_PORTF_PIN_SENSE, 0x00000000 },
+++	{ CX2072X_PORTF_GAIN_RIGHT, 0x00000000 },
+++	{ CX2072X_PORTF_GAIN_LEFT, 0x00000000 },
+++	{ CX2072X_PORTG_POWER_STATE, 0x00000433 },
+++	{ CX2072X_PORTG_PIN_CTRL, 0x00000040 },
+++	{ CX2072X_PORTG_CONNECTION_SELECT_CTRL, 0x00000000 },
+++	{ CX2072X_PORTG_EAPD_BTL, 0x00000002 },
+++	{ CX2072X_PORTM_POWER_STATE, 0x00000433 },
+++	{ CX2072X_PORTM_PIN_CTRL, 0x00000000 },
+++	{ CX2072X_PORTM_CONNECTION_SELECT_CTRL, 0x00000000 },
+++	{ CX2072X_PORTM_EAPD_BTL, 0x00000002 },
+++	{ CX2072X_MIXER_POWER_STATE, 0x00000433 },
+++	{ CX2072X_MIXER_GAIN_RIGHT_0, 0x0000004a },
+++	{ CX2072X_MIXER_GAIN_LEFT_0, 0x0000004a },
+++	{ CX2072X_MIXER_GAIN_RIGHT_1, 0x0000004a },
+++	{ CX2072X_MIXER_GAIN_LEFT_1, 0x0000004a },
+++	{ CX2072X_SPKR_DRC_ENABLE_STEP, 0x040065a4 },
+++	{ CX2072X_SPKR_DRC_CONTROL, 0x007b0024 },
+++	{ CX2072X_SPKR_DRC_TEST, 0x00000000 },
+++	{ CX2072X_DIGITAL_BIOS_TEST0, 0x001f008a },
+++	{ CX2072X_DIGITAL_BIOS_TEST2, 0x00990026 },
+++	{ CX2072X_I2SPCM_CONTROL1, 0x00010001 },
+++	{ CX2072X_I2SPCM_CONTROL2, 0x0000000f },
+++	{ CX2072X_I2SPCM_CONTROL3, 0x0000000f },
+++	{ CX2072X_I2SPCM_CONTROL4, 0x00000000 },
+++	{ CX2072X_I2SPCM_CONTROL5, 0x00000000 },
+++	{ CX2072X_I2SPCM_CONTROL6, 0x00000000 },
+++	{ CX2072X_UM_INTERRUPT_CRTL_E, 0x00000000 },
+++	{ CX2072X_CODEC_TEST2, 0x00000000 },
+++	{ CX2072X_CODEC_TEST9, 0x00000004 },
+++	{ CX2072X_CODEC_TEST20, 0x00000600 },
+++	{ CX2072X_CODEC_TEST26, 0x00000208 },
+++	{ CX2072X_ANALOG_TEST4, 0x00000000 },
+++	{ CX2072X_ANALOG_TEST5, 0x00000000 },
+++	{ CX2072X_ANALOG_TEST6, 0x0000059a },
+++	{ CX2072X_ANALOG_TEST7, 0x000000a7 },
+++	{ CX2072X_ANALOG_TEST8, 0x00000017 },
+++	{ CX2072X_ANALOG_TEST9, 0x00000000 },
+++	{ CX2072X_ANALOG_TEST10, 0x00000285 },
+++	{ CX2072X_ANALOG_TEST11, 0x00000000 },
+++	{ CX2072X_ANALOG_TEST12, 0x00000000 },
+++	{ CX2072X_ANALOG_TEST13, 0x00000000 },
+++	{ CX2072X_DIGITAL_TEST1, 0x00000242 },
+++	{ CX2072X_DIGITAL_TEST11, 0x00000000 },
+++	{ CX2072X_DIGITAL_TEST12, 0x00000084 },
+++	{ CX2072X_DIGITAL_TEST15, 0x00000077 },
+++	{ CX2072X_DIGITAL_TEST16, 0x00000021 },
+++	{ CX2072X_DIGITAL_TEST17, 0x00000018 },
+++	{ CX2072X_DIGITAL_TEST18, 0x00000024 },
+++	{ CX2072X_DIGITAL_TEST19, 0x00000001 },
+++	{ CX2072X_DIGITAL_TEST20, 0x00000002 },
+++};
+++
+++
+++/*
+++ * register patch.
+++ */
+++#if (KERNEL_VERSION(4, 0, 0) <= LINUX_VERSION_CODE)
+++static const struct reg_sequence cx2072x_patch[] = {
+++#else
+++static const struct reg_default cx2072x_patch[] = {
+++#endif
+++	{ 0x71A4, 0x080 }, /* DC offset Calibration	   */
+++	{ 0x71a8, 0x038 }, /* Max speaker output 2watt     */
+++	{ 0x7310, 0xf05 },
+++	{ 0x7290, 0x380 },
+++	{ 0x7328, 0xb90 },
+++	{ 0x7124, 0x001 }, /* Enable 30 Hz High pass filter*/
+++	{ 0x718c, 0x300 }, /* Disable PCBEEP pad	   */
+++	{ 0x731c, 0x100 }, /* Disable SnM mode		   */
+++	{ 0x641c, 0x020 }, /* Enable PortD input	   */
+++	{ 0x0458, 0x040 }, /* Enable GPIO7 pin for button  */
+++	{ 0x0464, 0x040 }, /* Enable UM for GPIO7	   */
+++	{ 0x0420, 0x080 }, /* Enable button response	   */
+++	{ 0x7230, 0x0c4 }, /* Enable headset button	   */
+++	{ 0x7200, 0x415 }, /* Power down class-d during idle*/
+++	{ 0x6e04, 0x00f }, /* Enable I2S tx                */
+++	{ 0x6e08, 0x00f }, /* Enable I2S rx                */
+++};
+++
+++
+++/* return register size */
+++static unsigned int cx2072x_register_size(struct device *dev, unsigned int reg)
+++{
+++	switch (reg) {
+++	case CX2072X_VENDOR_ID:
+++	case CX2072X_REVISION_ID:
+++	case CX2072X_PORTA_PIN_SENSE:
+++	case CX2072X_PORTB_PIN_SENSE:
+++	case CX2072X_PORTD_PIN_SENSE:
+++	case CX2072X_PORTE_PIN_SENSE:
+++	case CX2072X_PORTF_PIN_SENSE:
+++	case CX2072X_I2SPCM_CONTROL1:
+++	case CX2072X_I2SPCM_CONTROL2:
+++	case CX2072X_I2SPCM_CONTROL3:
+++	case CX2072X_I2SPCM_CONTROL4:
+++	case CX2072X_I2SPCM_CONTROL5:
+++	case CX2072X_I2SPCM_CONTROL6:
+++	case CX2072X_UM_INTERRUPT_CRTL_E:
+++	case CX2072X_EQ_G_COEFF:
+++	case CX2072X_SPKR_DRC_CONTROL:
+++	case CX2072X_SPKR_DRC_TEST:
+++	case CX2072X_DIGITAL_BIOS_TEST0:
+++	case CX2072X_DIGITAL_BIOS_TEST2:
+++		return 4;
+++	case CX2072X_EQ_ENABLE_BYPASS:
+++	case CX2072X_EQ_B0_COEFF:
+++	case CX2072X_EQ_B1_COEFF:
+++	case CX2072X_EQ_B2_COEFF:
+++	case CX2072X_EQ_A1_COEFF:
+++	case CX2072X_EQ_A2_COEFF:
+++	case CX2072X_DAC1_CONVERTER_FORMAT:
+++	case CX2072X_DAC2_CONVERTER_FORMAT:
+++	case CX2072X_ADC1_CONVERTER_FORMAT:
+++	case CX2072X_ADC2_CONVERTER_FORMAT:
+++	case CX2072X_CODEC_TEST2:
+++	case CX2072X_CODEC_TEST9:
+++	case CX2072X_CODEC_TEST20:
+++	case CX2072X_CODEC_TEST26:
+++	case CX2072X_ANALOG_TEST3:
+++	case CX2072X_ANALOG_TEST4:
+++	case CX2072X_ANALOG_TEST5:
+++	case CX2072X_ANALOG_TEST6:
+++	case CX2072X_ANALOG_TEST7:
+++	case CX2072X_ANALOG_TEST8:
+++	case CX2072X_ANALOG_TEST9:
+++	case CX2072X_ANALOG_TEST10:
+++	case CX2072X_ANALOG_TEST11:
+++	case CX2072X_ANALOG_TEST12:
+++	case CX2072X_ANALOG_TEST13:
+++	case CX2072X_DIGITAL_TEST0:
+++	case CX2072X_DIGITAL_TEST1:
+++	case CX2072X_DIGITAL_TEST11:
+++	case CX2072X_DIGITAL_TEST12:
+++	case CX2072X_DIGITAL_TEST15:
+++	case CX2072X_DIGITAL_TEST16:
+++	case CX2072X_DIGITAL_TEST17:
+++	case CX2072X_DIGITAL_TEST18:
+++	case CX2072X_DIGITAL_TEST19:
+++	case CX2072X_DIGITAL_TEST20:
+++		return 2;
+++	default:
+++		return 1;
+++	}
+++
+++}
+++
+++#ifdef CXDBG_REG_DUMP
+++static const char *cx2072x_get_reg_name(struct device *dev, unsigned int reg)
+++{
+++	int i;
+++
+++	for (i = 0; i < ARRAY_SIZE(cx2072x_regs); i++)
+++		if (cx2072x_regs[i].addr == reg)
+++			return cx2072x_regs[i].name;
+++
+++	dev_err(dev, "Unknown reg %08x\n", reg);
+++
+++	return "Unknown reg";
+++}
+++#endif
+++
+++static int cx2072x_reg_write(void *context, unsigned int reg,
+++			    unsigned int value)
+++{
+++	struct i2c_client *client = context;
+++	unsigned int i;
+++	unsigned int size;
+++	u8 buf[6];
+++	int ret;
+++	struct device *dev = &client->dev;
+++
+++	size = cx2072x_register_size(dev, reg);
+++	if (size == 0)
+++		return -EINVAL;
+++#ifdef CXDBG_REG_DUMP
+++	dev_dbg(dev, "I2C write address %40s,%d <= %08x\n",
+++		cx2072x_get_reg_name(dev, reg), size, value);
+++#endif
+++
+++	if (reg == CX2072X_UM_INTERRUPT_CRTL_E) {
+++		/* Update the MSB byte only */
+++		reg += 3;
+++		size = 1;
+++		value >>= 24;
+++	}
+++
+++	buf[0] = reg >> 8;
+++	buf[1] = reg & 0xff;
+++
+++	for (i = 2; i < (size + 2); ++i) {
+++		buf[i] = value;
+++		value >>= 8;
+++	}
+++
+++	ret = i2c_master_send(client, buf, size + 2);
+++	if (ret == size + 2) {
+++		ret =  0;
+++	} else if (ret < 0) {
+++		dev_err(dev, "I2C write address failed, error = %d\n", ret);
+++	} else {
+++		dev_err(dev, "I2C write failed\n");
+++		ret =  -EIO;
+++	}
+++	return ret;
+++}
+++
+++static int cx2072x_reg_bulk_write(struct cx2072x_priv *cx2072x,
+++				 unsigned int reg, const void *val,
+++				 size_t val_count)
+++{
+++	struct i2c_client *client = to_i2c_client(cx2072x->codec->dev);
+++	u8 buf[2 + MAX_EQ_COEFF];
+++#ifdef CXDBG_REG_DUMP
+++	int i, addr;
+++#endif
+++	int ret;
+++	struct device *dev = &client->dev;
+++
+++
+++	if (val_count > MAX_EQ_COEFF) {
+++		dev_err(dev,
+++			"cx2072x_reg_bulk_write failed, writing count = %d\n",
+++			(int)val_count);
+++		return -EINVAL;
+++	}
+++
+++	buf[0] = reg >> 8;
+++	buf[1] = reg & 0xff;
+++
+++	memcpy(&buf[2], val, val_count);
+++
+++#ifdef CXDBG_REG_DUMP
+++	dev_dbg(dev, "I2C bulk write address %40s,%d\n",
+++		cx2072x_get_reg_name(dev, reg), val_count);
+++
+++	addr = reg;
+++	for (i = 0; i < val_count; i++) {
+++		dev_dbg(dev, "%04x: %02x\n",
+++			addr, buf[2+i]);
+++		addr++;
+++	}
+++
+++	dev_dbg(dev, "done\n");
+++#endif
+++	ret = i2c_master_send(client, buf, val_count + 2);
+++	if (ret == val_count + 2) {
+++		return 0;
+++	} else if (ret < 0) {
+++		dev_err(dev,
+++			"I2C bulk write address failed\n");
+++	} else {
+++		dev_err(dev,
+++			"I2C bulk write address failed\n");
+++		ret = -EIO;
+++	}
+++	return ret;
+++}
+++
+++static int cx2072x_reg_read(void *context, unsigned int reg,
+++			   unsigned int *value)
+++{
+++	int ret;
+++	unsigned int size;
+++	u8 send_buf[2];
+++	unsigned int recv_buf = 0;
+++	struct i2c_client *client = context;
+++	struct i2c_msg msgs[2];
+++	struct device *dev = &client->dev;
+++
+++	size = cx2072x_register_size(dev, reg);
+++	if (size == 0)
+++		return -EINVAL;
+++
+++	send_buf[0] = reg >> 8;
+++	send_buf[1] = reg & 0xff;
+++
+++	msgs[0].addr = client->addr;
+++	msgs[0].len = sizeof(send_buf);
+++	msgs[0].buf = send_buf;
+++	msgs[0].flags = 0;
+++
+++	msgs[1].addr = client->addr;
+++	msgs[1].len = size;
+++	msgs[1].buf = (u8 *)&recv_buf;
+++	msgs[1].flags = I2C_M_RD;
+++
+++	ret = i2c_transfer(client->adapter, msgs, ARRAY_SIZE(msgs));
+++	if (ret < 0) {
+++		dev_err(dev,
+++			"Failed to register codec: %d\n", ret);
+++		return ret;
+++	} else if (ret != ARRAY_SIZE(msgs)) {
+++		dev_err(dev,
+++			"Failed to register codec: %d\n", ret);
+++		return -EIO;
+++	}
+++
+++	*value = recv_buf;
+++
+++#ifdef CXDBG_REG_DUMP
+++	dev_dbg(dev,
+++		"I2C read address %40s,%d => %08x\n",
+++		cx2072x_get_reg_name(dev, reg), size, *value);
+++#endif
+++	return 0;
+++}
+++
+++/* get suggested pre_div valuce from mclk frequency */
+++static unsigned int get_div_from_mclk(unsigned int mclk)
+++{
+++	unsigned int div = 8;
+++	int i = 0;
+++
+++	for (i = 0; i < ARRAY_SIZE(MCLK_PRE_DIV); i++) {
+++		if (mclk <= MCLK_PRE_DIV[i].mclk) {
+++			div = MCLK_PRE_DIV[i].div;
+++			break;
+++		}
+++	}
+++	return div;
+++}
+++
+++static int cx2072x_config_pll(struct cx2072x_priv *cx2072x)
+++{
+++	struct device *dev = cx2072x->dev;
+++	unsigned int pre_div;
+++	unsigned int pre_div_val;
+++	unsigned int pll_input;
+++	unsigned int pll_output;
+++	unsigned int int_div;
+++	unsigned int frac_div;
+++	u64 frac_num;
+++	unsigned int frac;
+++	unsigned int sample_rate = cx2072x->sample_rate;
+++	int pt_sample_per_sync = 2;
+++	int pt_clock_per_sample = 96;
+++
+++	switch (sample_rate) {
+++	case 48000:
+++	case 32000:
+++	case 24000:
+++	case 16000:
+++		break;
+++	case 96000:
+++		pt_sample_per_sync = 1;
+++		pt_clock_per_sample = 48;
+++		break;
+++	case 192000:
+++		pt_sample_per_sync = 0;
+++		pt_clock_per_sample = 24;
+++		break;
+++	default:
+++		dev_err(dev, "Unsupported sample rate %d\n", sample_rate);
+++		return -EINVAL;
+++	}
+++
+++	/*Configure PLL settings*/
+++	pre_div = get_div_from_mclk(cx2072x->mclk_rate);
+++	pll_input = cx2072x->mclk_rate / pre_div;
+++	pll_output = sample_rate * 3072;
+++	int_div = pll_output / pll_input;
+++	frac_div = pll_output - (int_div * pll_input);
+++
+++	if (frac_div) {
+++		frac_div *= 1000;
+++		frac_div /= pll_input;
+++		frac_num = ((4000 + frac_div) * ((1 << 20) - 4));
+++		do_div(frac_num, 7);
+++		frac = ((u32)frac_num + 499) / 1000;
+++	}
+++	pre_div_val = (pre_div - 1) * 2;
+++
+++	regmap_write(cx2072x->regmap, CX2072X_ANALOG_TEST4, 0X40
+++		     | (pre_div_val << 8));
+++	if (frac_div == 0) {
+++		/*Int mode*/
+++		regmap_write(cx2072x->regmap, CX2072X_ANALOG_TEST7, 0x100);
+++	} else {
+++		/*frac mode*/
+++		regmap_write(cx2072x->regmap, CX2072X_ANALOG_TEST6,
+++			     frac & 0xfff);
+++		regmap_write(cx2072x->regmap, CX2072X_ANALOG_TEST7,
+++			     (u8)(frac >> 12));
+++	}
+++	int_div--;
+++	regmap_write(cx2072x->regmap, CX2072X_ANALOG_TEST8, int_div);
+++
+++	/* configure PLL tracking*/
+++	if (frac_div == 0) {
+++		/* disable PLL tracking*/
+++		regmap_write(cx2072x->regmap, CX2072X_DIGITAL_TEST16, 0x00);
+++	} else {
+++		/* configure and enable PLL tracking*/
+++		regmap_write(cx2072x->regmap, CX2072X_DIGITAL_TEST16,
+++			     (pt_sample_per_sync << 4) & 0xf0);
+++		regmap_write(cx2072x->regmap, CX2072X_DIGITAL_TEST17,
+++			     pt_clock_per_sample);
+++		regmap_write(cx2072x->regmap, CX2072X_DIGITAL_TEST18,
+++			     pt_clock_per_sample * 3 / 2);
+++		regmap_write(cx2072x->regmap, CX2072X_DIGITAL_TEST19, 0x01);
+++		regmap_write(cx2072x->regmap, CX2072X_DIGITAL_TEST20, 0x02);
+++		regmap_update_bits(cx2072x->regmap, CX2072X_DIGITAL_TEST16,
+++				   0X01, 0X01);
+++	}
+++
+++	return 0;
+++}
+++
+++
+++static int cx2072x_config_i2spcm(struct cx2072x_priv *cx2072x)
+++{
+++	struct device *dev = cx2072x->dev;
+++	unsigned int bclk_rate = 0;
+++	int is_i2s = 0;
+++	int has_one_bit_delay = 0;
+++	int is_right_j = 0;
+++	int is_frame_inv = 0;
+++	int is_bclk_inv = 0;
+++	int pulse_len = 1;
+++	int frame_len = cx2072x->frame_size;
+++	int sample_size = cx2072x->sample_size;
+++	int i2s_right_slot;
+++	int i2s_right_pause_interval = 0;
+++	int i2s_right_pause_pos;
+++	int is_big_endian = 1;
+++	u64 div;
+++	unsigned int mod;
+++	union REG_I2SPCM_CTRL_REG1 reg1;
+++	union REG_I2SPCM_CTRL_REG2 reg2;
+++	union REG_I2SPCM_CTRL_REG3 reg3;
+++	union REG_I2SPCM_CTRL_REG4 reg4;
+++	union REG_I2SPCM_CTRL_REG5 reg5;
+++	union REG_I2SPCM_CTRL_REG6 reg6;
+++	union REG_DIGITAL_BIOS_TEST2 regdbt2;
+++	const unsigned int fmt = cx2072x->dai_fmt;
+++
+++	if (frame_len <= 0) {
+++		dev_err(dev, "Incorrect frame len %d\n", frame_len);
+++		return -EINVAL;
+++	}
+++
+++	if (sample_size <= 0) {
+++		dev_err(dev, "Incorrect sample size %d\n", sample_size);
+++		return -EINVAL;
+++	}
+++
+++	dev_dbg(dev, "config_i2spcm set_dai_fmt- %08x\n", fmt);
+++
+++	regdbt2.ulval = 0xac;
+++
+++	/* set master/slave */
+++	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
+++	case SND_SOC_DAIFMT_CBM_CFM:
+++		if (cx2072x->en_aec_ref) {
+++			reg2.r.tx_master = 0;
+++			reg3.r.rx_master = 0;
+++			dev_dbg(dev, "Sets Slave mode for AEC\n");
+++		} else {
+++			reg2.r.tx_master = 1;
+++			reg3.r.rx_master = 1;
+++			dev_dbg(dev, "Sets Master mode\n");
+++		}
+++		break;
+++
+++	case SND_SOC_DAIFMT_CBS_CFS:
+++		reg2.r.tx_master = 0;
+++		reg3.r.rx_master = 0;
+++		dev_dbg(dev, "Sets Slave mode\n");
+++		break;
+++	default:
+++		dev_err(dev, "Unsupported DAI master mode\n");
+++		return -EINVAL;
+++	}
+++
+++	/* set format */
+++	switch (fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
+++	case SND_SOC_DAIFMT_I2S:
+++		is_i2s = 1;
+++		has_one_bit_delay = 1;
+++		pulse_len = frame_len / 2;
+++		break;
+++	case SND_SOC_DAIFMT_RIGHT_J:
+++		is_i2s = 1;
+++		is_right_j = 1;
+++		pulse_len = frame_len / 2;
+++		break;
+++	case SND_SOC_DAIFMT_LEFT_J:
+++		is_i2s = 1;
+++		pulse_len = frame_len / 2;
+++		break;
+++	case SND_SOC_DAIFMT_DSP_A:
+++		has_one_bit_delay = 1;
+++		break;
+++	case SND_SOC_DAIFMT_DSP_B:
+++		break;
+++	default:
+++		dev_err(dev, "Unsupported DAI format\n");
+++		return -EINVAL;
+++	}
+++
+++	/* clock inversion */
+++	switch (fmt & SND_SOC_DAIFMT_INV_MASK) {
+++	case SND_SOC_DAIFMT_NB_NF:
+++		is_frame_inv = is_i2s;
+++		is_bclk_inv = is_i2s;
+++		break;
+++	case SND_SOC_DAIFMT_IB_IF:
+++		is_frame_inv = !is_i2s;
+++		is_bclk_inv = !is_i2s;
+++		break;
+++	case SND_SOC_DAIFMT_IB_NF:
+++		is_frame_inv = is_i2s;
+++		is_bclk_inv = !is_i2s;
+++		break;
+++	case SND_SOC_DAIFMT_NB_IF:
+++		is_frame_inv = !is_i2s;
+++		is_bclk_inv = is_i2s;
+++		break;
+++	default:
+++		dev_err(dev, "Unsupported DAI clock inversion\n");
+++		return -EINVAL;
+++	}
+++
+++	reg1.r.rx_data_one_line = 1;
+++	reg1.r.tx_data_one_line = 1;
+++
+++	if (is_i2s) {
+++		i2s_right_slot = (frame_len / 2) / BITS_PER_SLOT;
+++		i2s_right_pause_interval = (frame_len / 2) % BITS_PER_SLOT;
+++		i2s_right_pause_pos = i2s_right_slot * BITS_PER_SLOT;
+++	}
+++
+++	reg1.r.rx_ws_pol = is_frame_inv;
+++	reg1.r.rx_ws_wid = pulse_len - 1;
+++
+++	reg1.r.rx_frm_len = frame_len / BITS_PER_SLOT - 1;
+++	reg1.r.rx_sa_size = (sample_size / BITS_PER_SLOT) - 1;
+++
+++	reg1.r.tx_ws_pol = reg1.r.rx_ws_pol;
+++	reg1.r.tx_ws_wid = pulse_len - 1;
+++	reg1.r.tx_frm_len = reg1.r.rx_frm_len;
+++	reg1.r.tx_sa_size = reg1.r.rx_sa_size;
+++
+++	reg2.r.tx_endian_sel = !is_big_endian;
+++	reg2.r.tx_dstart_dly = has_one_bit_delay;
+++
+++	reg3.r.rx_endian_sel = !is_big_endian;
+++	reg3.r.rx_dstart_dly = has_one_bit_delay;
+++
+++	if (is_i2s) {
+++		reg2.r.tx_slot_1 = 0;
+++		reg2.r.tx_slot_2 = i2s_right_slot;
+++		reg3.r.rx_slot_1 = 0;
+++		if (cx2072x->en_aec_ref && cx2072x->num_chan_sel)
+++			reg3.r.rx_slot_2 = 0;
+++		else
+++			reg3.r.rx_slot_2 = i2s_right_slot;
+++		reg6.r.rx_pause_start_pos = i2s_right_pause_pos;
+++		reg6.r.rx_pause_cycles = i2s_right_pause_interval;
+++		reg6.r.tx_pause_start_pos = i2s_right_pause_pos;
+++		reg6.r.tx_pause_cycles = i2s_right_pause_interval;
+++	} else {
+++		dev_err(dev, "TDM mode is not implemented yet\n");
+++		return -EINVAL;
+++	}
+++	regdbt2.r.i2s_bclk_invert = is_bclk_inv;
+++
+++	reg1.r.rx_data_one_line = 1;
+++	reg1.r.tx_data_one_line = 1;
+++
+++#ifdef ENABLE_MIC_POP_WA
+++	/*Mute I2S TX*/
+++	reg4.ulval |= 0x2;
+++#endif
+++
+++	/* Configures the BCLK output.*/
+++	bclk_rate = cx2072x->sample_rate * frame_len;
+++	reg5.r.i2s_pcm_clk_div_chan_en = 0;
+++
+++	/*Disables bclk output before setting new value*/
+++	regmap_write(cx2072x->regmap, CX2072X_I2SPCM_CONTROL5, 0);
+++	if (reg2.r.tx_master) {
+++		/*Configures BCLK rate*/
+++		div = PLL_OUT_HZ_48;
+++		mod = do_div(div, bclk_rate);
+++		if (mod) {
+++			dev_err(dev, "Unsupported BCLK %dHz\n", bclk_rate);
+++			return -EINVAL;
+++		}
+++		dev_dbg(dev, "enables BCLK %dHz output\n", bclk_rate);
+++		reg5.r.i2s_pcm_clk_div = (u32)div - 1;
+++		reg5.r.i2s_pcm_clk_div_chan_en = 1;
+++	}
+++
+++	regmap_write(cx2072x->regmap, CX2072X_I2SPCM_CONTROL1, reg1.ulval);
+++	regmap_update_bits(cx2072x->regmap, CX2072X_I2SPCM_CONTROL2, 0xffffffc0,
+++			   reg2.ulval);
+++	regmap_update_bits(cx2072x->regmap, CX2072X_I2SPCM_CONTROL3, 0xffffffc0,
+++			   reg3.ulval);
+++	regmap_write(cx2072x->regmap, CX2072X_I2SPCM_CONTROL4, reg4.ulval);
+++	regmap_write(cx2072x->regmap, CX2072X_I2SPCM_CONTROL6, reg6.ulval);
+++	regmap_write(cx2072x->regmap, CX2072X_I2SPCM_CONTROL5, reg5.ulval);
+++
+++	/*Enables bclk and EAPD pin*/
+++	if (cx2072x->rev_id == CX2072X_REV_A2)
+++		regmap_update_bits(cx2072x->regmap, CX2072X_DIGITAL_BIOS_TEST2,
+++				   0x84, 0xFF);
+++	else
+++		regmap_write(cx2072x->regmap, CX2072X_DIGITAL_BIOS_TEST2,
+++			     regdbt2.ulval);
+++
+++	return 0;
+++}
+++
+++static void *cx2072x_kcontrol_get_drvdata(struct snd_kcontrol *kcontrol)
+++{
+++#if (KERNEL_VERSION(4, 17, 0) <= LINUX_VERSION_CODE)
+++	struct snd_soc_component *codec = snd_kcontrol_chip(kcontrol);
+++
+++	return snd_soc_component_get_drvdata(codec);
+++#elif (KERNEL_VERSION(4, 0, 0) <= LINUX_VERSION_CODE)
+++	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
+++
+++	return snd_soc_codec_get_drvdata(codec);
+++#else
+++	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
+++
+++	return snd_soc_codec_get_drvdata(codec);
+++#endif
+++}
+++
+++static void *cx2072x_dapm_get_drvdata(struct snd_soc_dapm_widget *w)
+++{
+++#if (KERNEL_VERSION(4, 17, 0) <= LINUX_VERSION_CODE)
+++	struct snd_soc_component *codec = snd_soc_dapm_to_component(w->dapm);
+++
+++	return snd_soc_component_get_drvdata(codec);
+++#elif (KERNEL_VERSION(4, 0, 0) <= LINUX_VERSION_CODE)
+++	struct snd_soc_codec *codec = snd_soc_dapm_to_codec(w->dapm);
+++
+++	return snd_soc_codec_get_drvdata(codec);
+++#else
+++	struct snd_soc_codec *codec = w->codec;
+++
+++	return snd_soc_codec_get_drvdata(codec);
+++#endif
+++}
+++
+++static void cx2072x_update_eq_coeff(struct cx2072x_priv *cx2072x)
+++{
+++	int band, ch, value;
+++
+++	if (!cx2072x->plbk_eq_changed)
+++		return;
+++	if (!cx2072x->plbk_eq_en)
+++		return;
+++	/* set EQ to bypass mode before configuring the EQ settings */
+++	regmap_write(cx2072x->regmap, CX2072X_EQ_ENABLE_BYPASS, 0x620f);
+++
+++	for (ch = 0; ch < 2; ch++)
+++		for (band = 0; band < CX2072X_PLBK_EQ_BAND_NUM; band++) {
+++			cx2072x_reg_bulk_write(cx2072x, CX2072X_EQ_B0_COEFF,
+++					       &cx2072x->plbk_eq[ch][band][0],
+++					       MAX_EQ_COEFF);
+++			value = band + (ch << 3) + (1 << 6);
+++			regmap_write(cx2072x->regmap, CX2072X_EQ_BAND, value);
+++			mdelay(5);
+++		}
+++
+++	cx2072x->plbk_eq_changed = false;
+++	cx2072x->plbk_eq_en_changed = true;
+++
+++}
+++
+++static void cx2072x_update_eq_en(struct cx2072x_priv *cx2072x)
+++{
+++	if (cx2072x->plbk_eq_en_changed) {
+++		if (cx2072x->plbk_eq_en)
+++			regmap_write(cx2072x->regmap, CX2072X_EQ_ENABLE_BYPASS,
+++				     0x6203);
+++		else
+++			regmap_write(cx2072x->regmap, CX2072X_EQ_ENABLE_BYPASS,
+++				     0x620c);
+++
+++		cx2072x->plbk_eq_en_changed = false;
+++	}
+++}
+++
+++static void cx2072x_update_drc(struct cx2072x_priv *cx2072x)
+++{
+++	if (cx2072x->plbk_drc_changed && cx2072x->plbk_drc_en) {
+++		cx2072x_reg_bulk_write(cx2072x, CX2072X_SPKR_DRC_ENABLE_STEP,
+++				       cx2072x->plbk_drc, MAX_DRC_REGS);
+++		cx2072x->plbk_drc_changed = false;
+++		cx2072x->plbk_drc_en_changed = true;
+++	}
+++}
+++
+++static void cx2072x_update_drc_en(struct cx2072x_priv *cx2072x)
+++{
+++	u8 drc_status = cx2072x->plbk_drc[0];
+++
+++	if (!cx2072x->plbk_drc_en_changed)
+++		return;
+++
+++	if (cx2072x->plbk_drc_en) {
+++		drc_status |= 0x1;
+++		regmap_write(cx2072x->regmap, CX2072X_SPKR_DRC_ENABLE_STEP,
+++			     drc_status);
+++		cx2072x->plbk_drc[0] = drc_status;
+++	} else {
+++		drc_status &= 0xfe;
+++		regmap_write(cx2072x->regmap, CX2072X_SPKR_DRC_ENABLE_STEP,
+++			     drc_status);
+++		cx2072x->plbk_drc[0] = drc_status;
+++	}
+++
+++	cx2072x->plbk_drc_en_changed = false;
+++}
+++
+++static void cx2072x_update_dsp(struct cx2072x_priv *cx2072x)
+++{
+++	unsigned int afg_reg;
+++
+++	regmap_read(cx2072x->regmap, CX2072X_AFG_POWER_STATE, &afg_reg);
+++
+++	if ((afg_reg & 0xf) != 0)
+++		/*skip since device is on D3 mode*/
+++		return;
+++
+++	regmap_read(cx2072x->regmap, CX2072X_PORTG_POWER_STATE, &afg_reg);
+++	if ((afg_reg & 0xf) != 0) {
+++		dev_dbg(cx2072x->codec->dev,
+++			"failed to update dsp dueo portg is off\n");
+++		/*skip since device is on D3 mode*/
+++		return;
+++	}
+++
+++	cx2072x_update_eq_coeff(cx2072x);
+++	cx2072x_update_eq_en(cx2072x);
+++	cx2072x_update_drc(cx2072x);
+++	cx2072x_update_drc_en(cx2072x);
+++}
+++
+++static int afg_power_ev(struct snd_soc_dapm_widget *w,
+++		       struct snd_kcontrol *kcontrol, int event)
+++{
+++	struct cx2072x_priv *cx2072x = cx2072x_dapm_get_drvdata(w);
+++
+++	switch (event) {
+++	case SND_SOC_DAPM_POST_PMU:
+++		regmap_update_bits(cx2072x->regmap, CX2072X_DIGITAL_BIOS_TEST0,
+++				   0x00, 0x10);
+++		break;
+++
+++	case SND_SOC_DAPM_PRE_PMD:
+++		regmap_update_bits(cx2072x->regmap, CX2072X_DIGITAL_BIOS_TEST0,
+++				   0x10, 0x10);
+++		break;
+++	}
+++
+++	return 0;
+++}
+++
+++#ifdef ENABLE_MIC_POP_WA
+++/*
+++ * This work will be called at ADC widget power on time.
+++ * to reduce initial mic pop noise caused by hardware
+++ */
+++
+++static void cx2072x_anit_mic_pop_work(struct work_struct *work)
+++{
+++	struct snd_soc_dapm_context *dapm =
+++		container_of(work, struct snd_soc_dapm_context,
+++			     delayed_work.work);
+++#if (KERNEL_VERSION(4, 17, 0) <= LINUX_VERSION_CODE)
+++	struct snd_soc_component *codec = snd_soc_dapm_to_component(dapm);
+++	struct cx2072x_priv *cx2072x = snd_soc_component_get_drvdata(codec);
+++#else
+++	struct snd_soc_codec *codec = dapm->codec;
+++	struct cx2072x_priv *cx2072x = snd_soc_codec_get_drvdata(codec);
+++#endif
+++
+++	dev_dbg(cx2072x->dev, "Unmute I2S TX\n");
+++	/*Unmute I2S TX*/
+++
+++	regmap_update_bits(cx2072x->regmap, CX2072X_I2SPCM_CONTROL4,
+++			   0x2, 0x0);
+++}
+++#endif
+++
+++static int adc1_power_ev(struct snd_soc_dapm_widget *w,
+++			struct snd_kcontrol *kcontrol, int event)
+++{
+++#ifdef ENABLE_MIC_POP_WA
+++	struct cx2072x_priv *cx2072x = cx2072x_dapm_get_drvdata(w);
+++
+++	switch (event) {
+++	case SND_SOC_DAPM_POST_PMU:
+++		/* Umute I2S TX after 300 ms to get around the mic
+++		 * pop noise issue.
+++		 */
+++		schedule_delayed_work(&cx2072x->codec->dapm.delayed_work,
+++				      msecs_to_jiffies(300));
+++		break;
+++
+++	case SND_SOC_DAPM_POST_PMD:
+++		/*Mute TX I2S*/
+++
+++		regmap_update_bits(cx2072x->regmap, CX2072X_I2SPCM_CONTROL4,
+++				   0x2, 0x2);
+++		break;
+++	}
+++#endif
+++	return 0;
+++}
+++
+++static int portg_power_ev(struct snd_soc_dapm_widget *w,
+++			 struct snd_kcontrol *kcontrol, int event)
+++{
+++	struct cx2072x_priv *cx2072x = cx2072x_dapm_get_drvdata(w);
+++
+++	switch (event) {
+++	case SND_SOC_DAPM_POST_PMU:
+++		dev_dbg(cx2072x->codec->dev, "portg_power_event\n");
+++		cx2072x_update_dsp(cx2072x);
+++		break;
+++	default:
+++		break;
+++	}
+++	return 0;
+++}
+++
+++static int cx2072x_plbk_eq_en_info(struct snd_kcontrol *kcontrol,
+++				  struct snd_ctl_elem_info *uinfo)
+++{
+++	uinfo->type = SNDRV_CTL_ELEM_TYPE_BOOLEAN;
+++	uinfo->count = 1;
+++	uinfo->value.integer.min = 0;
+++	uinfo->value.integer.max = 1;
+++
+++	return 0;
+++}
+++
+++static int cx2072x_plbk_eq_en_get(struct snd_kcontrol *kcontrol,
+++				 struct snd_ctl_elem_value *ucontrol)
+++{
+++	struct cx2072x_priv *cx2072x = cx2072x_kcontrol_get_drvdata(kcontrol);
+++
+++	ucontrol->value.integer.value[0] = cx2072x->plbk_eq_en;
+++
+++	return 0;
+++}
+++
+++static int cx2072x_plbk_eq_en_put(struct snd_kcontrol *kcontrol,
+++				 struct snd_ctl_elem_value *ucontrol)
+++{
+++	struct cx2072x_priv *cx2072x = cx2072x_kcontrol_get_drvdata(kcontrol);
+++	const bool enable = ucontrol->value.integer.value[0];
+++
+++	if (ucontrol->value.integer.value[0] > 1)
+++		return -EINVAL;
+++
+++	if (cx2072x->plbk_eq_en != enable) {
+++		cx2072x->plbk_eq_en = enable;
+++		cx2072x->plbk_eq_en_changed = true;
+++		cx2072x_update_dsp(cx2072x);
+++	}
+++	return 0;
+++}
+++
+++static int cx2072x_plbk_drc_en_info(struct snd_kcontrol *kcontrol,
+++				   struct snd_ctl_elem_info *uinfo)
+++{
+++	uinfo->type = SNDRV_CTL_ELEM_TYPE_BOOLEAN;
+++	uinfo->count = 1;
+++	uinfo->value.integer.min = 0;
+++	uinfo->value.integer.max = 1;
+++
+++	return 0;
+++}
+++
+++static int cx2072x_plbk_drc_en_get(struct snd_kcontrol *kcontrol,
+++				  struct snd_ctl_elem_value *ucontrol)
+++{
+++	struct cx2072x_priv *cx2072x = cx2072x_kcontrol_get_drvdata(kcontrol);
+++
+++	ucontrol->value.integer.value[0] = cx2072x->plbk_drc_en;
+++
+++	return 0;
+++}
+++
+++static int cx2072x_plbk_drc_en_put(struct snd_kcontrol *kcontrol,
+++				  struct snd_ctl_elem_value *ucontrol)
+++{
+++	struct cx2072x_priv *cx2072x = cx2072x_kcontrol_get_drvdata(kcontrol);
+++	const bool enable = ucontrol->value.integer.value[0];
+++
+++	if (ucontrol->value.integer.value[0] > 1)
+++		return -EINVAL;
+++
+++	if (cx2072x->plbk_drc_en != enable) {
+++		cx2072x->plbk_drc_en = enable;
+++		cx2072x->plbk_drc_en_changed = true;
+++		cx2072x_update_dsp(cx2072x);
+++	}
+++
+++	return 0;
+++}
+++
+++static int cx2072x_plbk_eq_info(struct snd_kcontrol *kcontrol,
+++			       struct snd_ctl_elem_info *uinfo)
+++{
+++	uinfo->type = SNDRV_CTL_ELEM_TYPE_BYTES;
+++	uinfo->count = CX2072X_PLBK_EQ_COEF_LEN;
+++
+++	return 0;
+++}
+++
+++static int cx2072x_plbk_eq_get(struct snd_kcontrol *kcontrol,
+++			      struct snd_ctl_elem_value *ucontrol)
+++{
+++	struct cx2072x_priv *cx2072x = cx2072x_kcontrol_get_drvdata(kcontrol);
+++	struct CX2072X_EQ_CTRL *eq =
+++		(struct CX2072X_EQ_CTRL *)kcontrol->private_value;
+++	u8 *param = ucontrol->value.bytes.data;
+++	u8 *cache = cx2072x->plbk_eq[eq->ch][eq->band];
+++
+++	memcpy(param, cache, CX2072X_PLBK_EQ_COEF_LEN);
+++
+++	return 0;
+++}
+++
+++static int cx2072x_plbk_eq_put(struct snd_kcontrol *kcontrol,
+++			      struct snd_ctl_elem_value *ucontrol)
+++{
+++	struct cx2072x_priv *cx2072x = cx2072x_kcontrol_get_drvdata(kcontrol);
+++	struct CX2072X_EQ_CTRL *eq =
+++	(struct CX2072X_EQ_CTRL *)kcontrol->private_value;
+++	u8 *param = ucontrol->value.bytes.data;
+++	u8 *cache = cx2072x->plbk_eq[eq->ch][eq->band];
+++
+++	mutex_lock(&cx2072x->eq_coeff_lock);
+++
+++	/*do nothing if the value is the same*/
+++	if (!memcmp(cache, param, CX2072X_PLBK_EQ_COEF_LEN))
+++		goto EXIT;
+++
+++	memcpy(cache, param, CX2072X_PLBK_EQ_COEF_LEN);
+++
+++	cx2072x->plbk_eq_changed = true;
+++	cx2072x->plbk_eq_channel = eq->ch;
+++
+++	cx2072x_update_dsp(cx2072x);
+++EXIT:
+++	mutex_unlock(&cx2072x->eq_coeff_lock);
+++	return 0;
+++}
+++
+++static int cx2072x_classd_level_info(struct snd_kcontrol *kcontrol,
+++				    struct snd_ctl_elem_info *uinfo)
+++{
+++	uinfo->type = SNDRV_CTL_ELEM_TYPE_BYTES;
+++	uinfo->count = CX2072X_CLASSD_AMP_LEN;
+++	return 0;
+++}
+++
+++static int cx2072x_classd_level_get(struct snd_kcontrol *kcontrol,
+++				   struct snd_ctl_elem_value *ucontrol)
+++{
+++	struct cx2072x_priv *cx2072x = cx2072x_kcontrol_get_drvdata(kcontrol);
+++	u8 *param = ucontrol->value.bytes.data;
+++	u8 *cache = cx2072x->classd_amp;
+++
+++	memcpy(param, cache, CX2072X_CLASSD_AMP_LEN);
+++	return 0;
+++}
+++
+++static int cx2072x_classd_level_put(struct snd_kcontrol *kcontrol,
+++				   struct snd_ctl_elem_value *ucontrol)
+++{
+++	struct cx2072x_priv *cx2072x = cx2072x_kcontrol_get_drvdata(kcontrol);
+++	u8 *param = ucontrol->value.bytes.data;
+++	u8 *cache = cx2072x->classd_amp;
+++	u16 val;
+++
+++	memcpy(cache, param, CX2072X_CLASSD_AMP_LEN);
+++	/* Config Power Averaging */
+++	val = cx2072x->classd_amp[0] | (u16)cx2072x->classd_amp[1] << 8;
+++	regmap_write(cx2072x->regmap, CX2072X_ANALOG_TEST10, val);
+++	val = cx2072x->classd_amp[2] | (u16)cx2072x->classd_amp[3] << 8;
+++	regmap_write(cx2072x->regmap, CX2072X_CODEC_TEST20, val);
+++	val = cx2072x->classd_amp[4] | (u16)cx2072x->classd_amp[5] << 8;
+++	regmap_write(cx2072x->regmap, CX2072X_CODEC_TEST26, val);
+++
+++	return 0;
+++}
+++
+++static int cx2072x_plbk_drc_info(struct snd_kcontrol *kcontrol,
+++				struct snd_ctl_elem_info *uinfo)
+++{
+++	uinfo->type = SNDRV_CTL_ELEM_TYPE_BYTES;
+++	uinfo->count = CX2072X_PLBK_DRC_PARM_LEN;
+++
+++	return 0;
+++}
+++
+++static int cx2072x_plbk_drc_get(struct snd_kcontrol *kcontrol,
+++			       struct snd_ctl_elem_value *ucontrol)
+++{
+++	struct cx2072x_priv *cx2072x = cx2072x_kcontrol_get_drvdata(kcontrol);
+++	u8 *param = ucontrol->value.bytes.data;
+++	u8 *cache = cx2072x->plbk_drc;
+++
+++	memcpy(param, cache, CX2072X_PLBK_DRC_PARM_LEN);
+++
+++	return 0;
+++}
+++
+++static int cx2072x_plbk_drc_put(struct snd_kcontrol *kcontrol,
+++			       struct snd_ctl_elem_value *ucontrol)
+++{
+++	struct cx2072x_priv *cx2072x = cx2072x_kcontrol_get_drvdata(kcontrol);
+++	u8 *param = ucontrol->value.bytes.data;
+++	u8 *cache = cx2072x->plbk_drc;
+++
+++	memcpy(cache, param, CX2072X_PLBK_DRC_PARM_LEN);
+++
+++	cx2072x->plbk_drc_changed = true;
+++	cx2072x_update_dsp(cx2072x);
+++
+++	return 0;
+++}
+++
+++static int cx2072x_codec_power_switch_info(struct snd_kcontrol *kcontrol,
+++					struct snd_ctl_elem_info *uinfo)
+++{
+++	uinfo->type = SNDRV_CTL_ELEM_TYPE_BOOLEAN;
+++	uinfo->count = 1;
+++	uinfo->value.integer.min = 0;
+++	uinfo->value.integer.max = 1;
+++
+++	return 0;
+++}
+++
+++static int cx2072x_codec_power_switch_get(struct snd_kcontrol *kcontrol,
+++					struct snd_ctl_elem_value *ucontrol)
+++{
+++	struct cx2072x_priv *cx2072x = cx2072x_kcontrol_get_drvdata(kcontrol);
+++
+++	ucontrol->value.integer.value[0] = cx2072x->codec_power_on;
+++
+++	return 0;
+++}
+++
+++static int cx2072x_codec_power_switch_put(struct snd_kcontrol *kcontrol,
+++					struct snd_ctl_elem_value *ucontrol)
+++{
+++	#if (KERNEL_VERSION(4, 17, 0) <= LINUX_VERSION_CODE)
+++	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+++	#elif (KERNEL_VERSION(4, 0, 0) <= LINUX_VERSION_CODE)
+++	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
+++	#else
+++	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
+++	#endif
+++	const bool power_on = ucontrol->value.integer.value[0];
+++
+++	if (power_on == 1)
+++	#if (KERNEL_VERSION(4, 17, 0) <= LINUX_VERSION_CODE)
+++		snd_soc_component_force_bias_level(component,
+++						   SND_SOC_BIAS_STANDBY);
+++	#else
+++	#if (KERNEL_VERSION(4, 2, 0) <= LINUX_VERSION_CODE)
+++		snd_soc_codec_force_bias_level(codec, SND_SOC_BIAS_STANDBY);
+++	#else
+++		cx2072x_set_bias_level(codec, SND_SOC_BIAS_STANDBY);
+++	#endif
+++	#endif
+++	else
+++	#if (KERNEL_VERSION(4, 17, 0) <= LINUX_VERSION_CODE)
+++		snd_soc_component_force_bias_level(component, SND_SOC_BIAS_OFF);
+++	#else
+++	#if (KERNEL_VERSION(4, 2, 0) <= LINUX_VERSION_CODE)
+++		snd_soc_codec_force_bias_level(codec, SND_SOC_BIAS_OFF);
+++	#else
+++		cx2072x_set_bias_level(codec, SND_SOC_BIAS_OFF);
+++	#endif
+++	#endif
+++
+++	return 0;
+++}
+++
+++static int cx2072x_get_num_chan(struct snd_kcontrol *kcontrol,
+++			       struct snd_ctl_elem_value *ucontrol)
+++{
+++	struct cx2072x_priv *cx2072x = cx2072x_kcontrol_get_drvdata(kcontrol);
+++	ucontrol->value.integer.value[0] = cx2072x->num_chan_sel;
+++
+++	return 0;
+++}
+++
+++static int cx2072x_set_num_chan(struct snd_kcontrol *kcontrol,
+++			       struct snd_ctl_elem_value *ucontrol)
+++{
+++	struct cx2072x_priv *cx2072x = cx2072x_kcontrol_get_drvdata(kcontrol);
+++	int ret = 0, sel = 0;
+++	union REG_I2SPCM_CTRL_REG3 reg3;
+++	int i2s_right_slot;
+++
+++	sel = ucontrol->value.integer.value[0];
+++	if (sel == cx2072x->num_chan_sel)
+++		return 0;
+++
+++	if (!cx2072x->frame_size)
+++		i2s_right_slot = 2;
+++	else
+++		i2s_right_slot = (cx2072x->frame_size / 2) / BITS_PER_SLOT;
+++
+++	reg3.r.rx_slot_1 = 0;
+++	if (sel)
+++		reg3.r.rx_slot_2 = 0;
+++	else
+++		reg3.r.rx_slot_2 = i2s_right_slot;
+++
+++	regmap_update_bits(cx2072x->regmap, CX2072X_I2SPCM_CONTROL3, 0x0000ffc0,
+++			   reg3.ulval);
+++
+++	cx2072x->num_chan_sel = sel;
+++
+++	return ret;
+++}
+++
+++static const char * const num_chan_sel_text[] = {"Stereo", "Mono"};
+++
+++static const struct soc_enum num_chan_enum[] = {
+++	SOC_ENUM_SINGLE_EXT(ARRAY_SIZE(num_chan_sel_text), num_chan_sel_text),
+++};
+++
+++#define CX2072X_PLBK_DRC_COEF(xname) \
+++{	.iface = SNDRV_CTL_ELEM_IFACE_MIXER, .name = xname, \
+++	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE, \
+++	.info = cx2072x_plbk_drc_info, \
+++	.get = cx2072x_plbk_drc_get, .put = cx2072x_plbk_drc_put}
+++
+++#define CX2072X_PLBK_EQ_COEF(xname, xch, xband) \
+++{	.iface = SNDRV_CTL_ELEM_IFACE_MIXER, .name = xname, \
+++	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE | \
+++		  SNDRV_CTL_ELEM_ACCESS_VOLATILE, \
+++	.info = cx2072x_plbk_eq_info, \
+++	.get = cx2072x_plbk_eq_get, .put = cx2072x_plbk_eq_put, \
+++	.private_value = \
+++		(unsigned long)&(struct CX2072X_EQ_CTRL) \
+++		 {.ch = xch, .band = xband } }
+++
+++#define CX2072X_PLBK_DSP_EQ_SWITCH(xname) \
+++{	.iface = SNDRV_CTL_ELEM_IFACE_MIXER, .name = (xname), \
+++	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE, \
+++	.info = cx2072x_plbk_eq_en_info, \
+++	.get = cx2072x_plbk_eq_en_get, .put = cx2072x_plbk_eq_en_put}
+++
+++#define CX2072X_PLBK_DSP_DRC_SWITCH(xname) \
+++{	.iface = SNDRV_CTL_ELEM_IFACE_MIXER, .name = (xname), \
+++	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE, \
+++	.info = cx2072x_plbk_drc_en_info, \
+++	.get = cx2072x_plbk_drc_en_get, .put = cx2072x_plbk_drc_en_put}
+++
+++#define CX2072X_CLASSD_LEVEL(xname) \
+++{	.iface = SNDRV_CTL_ELEM_IFACE_MIXER, .name = (xname), \
+++	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE, \
+++	.info = cx2072x_classd_level_info, \
+++	.get = cx2072x_classd_level_get, .put = cx2072x_classd_level_put}
+++
+++#define CX2072X_CODEC_POWER_CONTROL(xname) \
+++{	.iface = SNDRV_CTL_ELEM_IFACE_MIXER, .name = xname, \
+++	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE, \
+++	.info = cx2072x_codec_power_switch_info, \
+++	.get = cx2072x_codec_power_switch_get, \
+++	.put = cx2072x_codec_power_switch_put}
+++
+++static const struct snd_kcontrol_new cx2072x_snd_controls[] = {
+++
+++	SOC_DOUBLE_R_TLV("PortD Boost Volume", CX2072X_PORTD_GAIN_LEFT,
+++			 CX2072X_PORTD_GAIN_RIGHT, 0, 3, 0, boost_tlv),
+++	SOC_DOUBLE_R_TLV("PortC Boost Volume", CX2072X_PORTC_GAIN_LEFT,
+++			 CX2072X_PORTC_GAIN_RIGHT, 0, 3, 0, boost_tlv),
+++	SOC_DOUBLE_R_TLV("PortB Boost Volume", CX2072X_PORTB_GAIN_LEFT,
+++			 CX2072X_PORTB_GAIN_RIGHT, 0, 3, 0, boost_tlv),
+++	SOC_DOUBLE_R_TLV("PortD ADC1 Volume", CX2072X_ADC1_AMP_GAIN_LEFT_1,
+++			 CX2072X_ADC1_AMP_GAIN_RIGHT_1, 0, 0x4a, 0, adc_tlv),
+++	SOC_DOUBLE_R_TLV("PortC ADC1 Volume", CX2072X_ADC1_AMP_GAIN_LEFT_2,
+++			 CX2072X_ADC1_AMP_GAIN_RIGHT_2, 0, 0x4a, 0, adc_tlv),
+++	SOC_DOUBLE_R_TLV("PortB ADC1 Volume", CX2072X_ADC1_AMP_GAIN_LEFT_0,
+++			 CX2072X_ADC1_AMP_GAIN_RIGHT_0, 0, 0x4a, 0, adc_tlv),
+++	SOC_DOUBLE_R_TLV("DAC1 Volume", CX2072X_DAC1_AMP_GAIN_LEFT,
+++			 CX2072X_DAC1_AMP_GAIN_RIGHT, 0, 0x4a, 0, dac_tlv),
+++	SOC_DOUBLE_R("DAC1 Mute Switch", CX2072X_DAC1_AMP_GAIN_LEFT,
+++		     CX2072X_DAC1_AMP_GAIN_RIGHT, 7,  1, 0),
+++	SOC_DOUBLE_R_TLV("DAC2 Volume", CX2072X_DAC2_AMP_GAIN_LEFT,
+++			 CX2072X_DAC2_AMP_GAIN_RIGHT, 0, 0x4a, 0, dac_tlv),
+++
+++	CX2072X_PLBK_DSP_EQ_SWITCH("EQ Switch"),
+++	CX2072X_PLBK_DSP_DRC_SWITCH("DRC Switch"),
+++
+++	CX2072X_PLBK_EQ_COEF("DACL EQ 0", 0, 0),
+++	CX2072X_PLBK_EQ_COEF("DACL EQ 1", 0, 1),
+++	CX2072X_PLBK_EQ_COEF("DACL EQ 2", 0, 2),
+++	CX2072X_PLBK_EQ_COEF("DACL EQ 3", 0, 3),
+++	CX2072X_PLBK_EQ_COEF("DACL EQ 4", 0, 4),
+++	CX2072X_PLBK_EQ_COEF("DACL EQ 5", 0, 5),
+++	CX2072X_PLBK_EQ_COEF("DACL EQ 6", 0, 6),
+++	CX2072X_PLBK_EQ_COEF("DACR EQ 0", 1, 0),
+++	CX2072X_PLBK_EQ_COEF("DACR EQ 1", 1, 1),
+++	CX2072X_PLBK_EQ_COEF("DACR EQ 2", 1, 2),
+++	CX2072X_PLBK_EQ_COEF("DACR EQ 3", 1, 3),
+++	CX2072X_PLBK_EQ_COEF("DACR EQ 4", 1, 4),
+++	CX2072X_PLBK_EQ_COEF("DACR EQ 5", 1, 5),
+++	CX2072X_PLBK_EQ_COEF("DACR EQ 6", 1, 6),
+++	CX2072X_PLBK_DRC_COEF("DRC"),
+++	SOC_SINGLE_TLV("HPF Freq", CX2072X_CODEC_TEST9, 0, 0x3f, 0, hpf_tlv),
+++	SOC_DOUBLE("HPF Switch", CX2072X_CODEC_TEST9, 8, 9, 1, 1),
+++	CX2072X_CLASSD_LEVEL("Class-D Output Level"),
+++	SOC_SINGLE("PortA HP Amp Switch", CX2072X_PORTA_PIN_CTRL, 7, 1, 0),
+++	CX2072X_CODEC_POWER_CONTROL("Power Switch"),
+++	SOC_ENUM_EXT("Number of Channels", num_chan_enum[0],
+++		     cx2072x_get_num_chan, cx2072x_set_num_chan),
+++};
+++
+++/*
+++ * cx2072x_enable_detect - Enable CX2072X jack detection
+++ * @codec : pointer variable to codec having information related to codec
+++ *
+++ */
+++#if (KERNEL_VERSION(4, 17, 0) <= LINUX_VERSION_CODE)
+++int cx2072x_enable_jack_detect(struct snd_soc_component *codec)
+++{
+++	struct cx2072x_priv *cx2072x = snd_soc_component_get_drvdata(codec);
+++#else
+++int cx2072x_enable_jack_detect(struct snd_soc_codec *codec)
+++{
+++	struct cx2072x_priv *cx2072x = snd_soc_codec_get_drvdata(codec);
+++#endif
+++#if (KERNEL_VERSION(4, 2, 0) <= LINUX_VERSION_CODE)
+++	/* struct snd_soc_dapm_context *dapm = snd_soc_codec_get_dapm(codec); */
+++#else
+++	/* struct snd_soc_dapm_context *dapm = &codec->dapm; */
+++#endif
+++
+++	/*No-sticky input type*/
+++	regmap_write(cx2072x->regmap, CX2072X_GPIO_STICKY_MASK, 0x1f);
+++
+++	/*Use GPOI0 as interrupt pin*/
+++	regmap_write(cx2072x->regmap, CX2072X_UM_INTERRUPT_CRTL_E, 0x12 << 24);
+++
+++	/* Enables unsolitited message on PortA*/
+++	regmap_write(cx2072x->regmap, CX2072X_PORTA_UNSOLICITED_RESPONSE, 0x80);
+++
+++	/* support both nokia and apple headset set. Monitor time = 275 ms*/
+++	regmap_write(cx2072x->regmap, CX2072X_DIGITAL_TEST15, 0x73);
+++
+++	/* Disable TIP detection*/
+++	regmap_write(cx2072x->regmap, CX2072X_ANALOG_TEST12, 0x300);
+++
+++	/* Switch MusicD3Live pin to GPIO */
+++	regmap_write(cx2072x->regmap, CX2072X_DIGITAL_TEST1, 0);
+++#if (KERNEL_VERSION(3, 15, 0) <= LINUX_VERSION_CODE)
+++	/* snd_soc_dapm_mutex_lock(dapm); */
+++	/* snd_soc_dapm_force_enable_pin_unlocked(dapm, "PORTD"); */
+++	/* snd_soc_dapm_force_enable_pin_unlocked(dapm, "Headset Bias");*/
+++	/* snd_soc_dapm_force_enable_pin_unlocked(dapm, "PortD Mic Bias"); */
+++	/* snd_soc_dapm_mutex_unlock(dapm); */
+++#else
+++	/* mutex_lock(&codec->mutex); */
+++	/* snd_soc_dapm_force_enable_pin(dapm, "PORTD"); */
+++	/* snd_soc_dapm_force_enable_pin(dapm, "Headset Bias"); */
+++	/* snd_soc_dapm_force_enable_pin(dapm, "PortD Mic Bias"); */
+++	/* mutex_unlock(&codec->mutex); */
+++#endif
+++	return 0;
+++}
+++EXPORT_SYMBOL_GPL(cx2072x_enable_jack_detect);
+++
+++/*
+++ * cx2072x_get_jack_state: Return current jack state.
+++ * @codec : pointer variable to codec having information related to codec
+++ *
+++ */
+++#if (KERNEL_VERSION(4, 17, 0) <= LINUX_VERSION_CODE)
+++int cx2072x_get_jack_state(struct snd_soc_component *codec)
+++#else
+++int cx2072x_get_jack_state(struct snd_soc_codec *codec)
+++#endif
+++{
+++	unsigned int jack;
+++	unsigned int type = 0;
+++	unsigned int int_mask;
+++	int  state = 0;
+++#if (KERNEL_VERSION(4, 17, 0) <= LINUX_VERSION_CODE)
+++	struct cx2072x_priv *cx2072x = snd_soc_component_get_drvdata(codec);
+++#else
+++	struct cx2072x_priv *cx2072x = snd_soc_codec_get_drvdata(codec);
+++#endif
+++
+++	mutex_lock(&cx2072x->cache_only_lock);
+++	regcache_cache_only(cx2072x->regmap, false);
+++	regmap_read(cx2072x->regmap, CX2072X_PORTA_PIN_SENSE, &jack);
+++	jack = jack >> 24;
+++	regmap_read(cx2072x->regmap, CX2072X_DIGITAL_TEST11, &type);
+++
+++	if (jack == 0x80) {
+++		type = type >> 8;
+++
+++		if (type & 0x8) {
+++			state |= SND_JACK_HEADSET;
+++			if (type & 0x2)
+++				state |= SND_JACK_BTN_0;
+++		} else {
+++			state |= SND_JACK_HEADPHONE;
+++		}
+++	}
+++
+++	/* clear interrupt */
+++	regmap_read(cx2072x->regmap, CX2072X_UM_INTERRUPT_CRTL_E, &int_mask);
+++	int_mask = (0x12 << 24) | int_mask;
+++	regmap_write(cx2072x->regmap, CX2072X_UM_INTERRUPT_CRTL_E, int_mask);
+++	mutex_unlock(&cx2072x->cache_only_lock);
+++
+++	dev_dbg(codec->dev, "CX2072X_HSDETECT type=0x%X,Jack state = %x\n",
+++		type, state);
+++	return state;
+++}
+++EXPORT_SYMBOL_GPL(cx2072x_get_jack_state);
+++
+++static void *cx2072x_dai_get_drvdata(struct snd_soc_dai *dai)
+++{
+++#if (KERNEL_VERSION(4, 17, 0) <= LINUX_VERSION_CODE)
+++	return snd_soc_component_get_drvdata(dai->component);
+++#else
+++	return snd_soc_codec_get_drvdata(dai->codec);
+++#endif
+++}
+++
+++static int cx2072x_hw_params(struct snd_pcm_substream *substream,
+++			    struct snd_pcm_hw_params *params,
+++			    struct snd_soc_dai *dai)
+++{
+++	struct cx2072x_priv *cx2072x = cx2072x_dai_get_drvdata(dai);
+++	struct device *dev = cx2072x->codec->dev;
+++	const unsigned int sample_rate = params_rate(params);
+++	int sample_size, frame_size;
+++
+++	/* Data sizes if not using TDM */
+++#if (KERNEL_VERSION(3, 14, 0) <= LINUX_VERSION_CODE)
+++	sample_size = params_width(params);
+++#else
+++	sample_size = snd_pcm_format_width(params_format(params));
+++#endif
+++
+++	if (sample_size < 0)
+++		return sample_size;
+++
+++	frame_size = snd_soc_params_to_frame_size(params);
+++	if (frame_size < 0)
+++		return frame_size;
+++
+++	if (cx2072x->mclk_rate == 0) {
+++		dev_err(dev, "Master clock rate is not configued\n");
+++		return -EINVAL;
+++	}
+++
+++	if (cx2072x->bclk_ratio)
+++		frame_size = cx2072x->bclk_ratio;
+++
+++	switch (sample_rate) {
+++	case 48000:
+++	case 32000:
+++	case 24000:
+++	case 16000:
+++		break;
+++	default:
+++		dev_err(dev, "Unsupported sample rate %d\n", sample_rate);
+++		return -EINVAL;
+++	}
+++
+++	dev_dbg(dev, "Sample size %d bits, frame = %d bits, rate = %d Hz\n",
+++		sample_size, frame_size, sample_rate);
+++
+++	cx2072x->frame_size = frame_size;
+++	cx2072x->sample_size = sample_size;
+++	cx2072x->sample_rate = sample_rate;
+++
+++	if (cx2072x->pll_changed) {
+++		cx2072x_config_pll(cx2072x);
+++		cx2072x->pll_changed = false;
+++	}
+++	if (cx2072x->i2spcm_changed) {
+++		cx2072x_config_i2spcm(cx2072x);
+++		cx2072x->i2spcm_changed = false;
+++	}
+++
+++	return 0;
+++}
+++
+++#if (KERNEL_VERSION(3, 13, 0) <= LINUX_VERSION_CODE)
+++static int cx2072x_set_dai_bclk_ratio(struct snd_soc_dai *dai,
+++				     unsigned int ratio)
+++{
+++	struct cx2072x_priv *cx2072x = cx2072x_dai_get_drvdata(dai);
+++
+++	cx2072x->bclk_ratio = ratio;
+++	return 0;
+++}
+++#else
+++/*
+++ * cx2072x_set_bclk_ratio: set frame size from master side
+++ * @dai : pointer variable to dai having information related to dai
+++ * @ratio : u32 variable to indicate how many bit clock size in a Frame
+++ * for example: 16 bits for stereo, set as 16x2 = 32
+++ */
+++int cx2072x_set_bclk_ratio(struct snd_soc_dai *dai, unsigned int ratio)
+++{
+++	struct cx2072x_priv *cx2072x = cx2072x_dai_get_drvdata(dai);
+++
+++	cx2072x->bclk_ratio = ratio;
+++	return 0;
+++}
+++EXPORT_SYMBOL_GPL(cx2072x_set_bclk_ratio);
+++#endif
+++
+++static int cx2072x_set_dai_sysclk(struct snd_soc_dai *dai, int clk_id,
+++				 unsigned int freq, int dir)
+++{
+++	struct cx2072x_priv *cx2072x = cx2072x_dai_get_drvdata(dai);
+++
+++	if (cx2072x->mclk && clk_set_rate(cx2072x->mclk, freq)) {
+++		dev_err(cx2072x->codec->dev, "set clk rate failed\n");
+++		return -EINVAL;
+++	}
+++
+++	cx2072x->mclk_rate = freq;
+++	return 0;
+++}
+++
+++static int cx2072x_set_dai_fmt(struct snd_soc_dai *dai, unsigned int fmt)
+++{
+++	struct cx2072x_priv *cx2072x = cx2072x_dai_get_drvdata(dai);
+++	struct device *dev = cx2072x->codec->dev;
+++
+++	dev_dbg(dev, "set_dai_fmt- %08x\n", fmt);
+++	/* set master/slave */
+++	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
+++	case SND_SOC_DAIFMT_CBM_CFM:
+++	case SND_SOC_DAIFMT_CBS_CFS:
+++		break;
+++	default:
+++		dev_err(dev, "Unsupported DAI master mode\n");
+++		return -EINVAL;
+++	}
+++
+++	/* set format */
+++	switch (fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
+++	case SND_SOC_DAIFMT_I2S:
+++	case SND_SOC_DAIFMT_RIGHT_J:
+++	case SND_SOC_DAIFMT_LEFT_J:
+++	case SND_SOC_DAIFMT_DSP_A:
+++	case SND_SOC_DAIFMT_DSP_B:
+++		break;
+++	default:
+++		dev_err(dev, "Unsupported DAI format\n");
+++		return -EINVAL;
+++	}
+++
+++	/* clock inversion */
+++	switch (fmt & SND_SOC_DAIFMT_INV_MASK) {
+++	case SND_SOC_DAIFMT_NB_NF:
+++	case SND_SOC_DAIFMT_IB_IF:
+++	case SND_SOC_DAIFMT_IB_NF:
+++	case SND_SOC_DAIFMT_NB_IF:
+++		break;
+++	default:
+++		dev_err(dev, "Unsupported DAI clock inversion\n");
+++		return -EINVAL;
+++	}
+++
+++	cx2072x->dai_fmt = fmt;
+++	return 0;
+++}
+++
+++static const struct snd_kcontrol_new portaouten_ctl =
+++	SOC_DAPM_SINGLE("Switch", CX2072X_PORTA_PIN_CTRL, 6, 1, 0);
+++
+++static const struct snd_kcontrol_new porteouten_ctl =
+++	SOC_DAPM_SINGLE("Switch", CX2072X_PORTE_PIN_CTRL, 6, 1, 0);
+++
+++static const struct snd_kcontrol_new portgouten_ctl =
+++	SOC_DAPM_SINGLE("Switch", CX2072X_PORTG_PIN_CTRL, 6, 1, 0);
+++
+++static const struct snd_kcontrol_new portmouten_ctl =
+++	SOC_DAPM_SINGLE("Switch", CX2072X_PORTM_PIN_CTRL, 6, 1, 0);
+++
+++static const struct snd_kcontrol_new portbinen_ctl =
+++	SOC_DAPM_SINGLE("Switch", CX2072X_PORTB_PIN_CTRL, 5, 1, 0);
+++
+++static const struct snd_kcontrol_new portcinen_ctl =
+++	SOC_DAPM_SINGLE("Switch", CX2072X_PORTC_PIN_CTRL, 5, 1, 0);
+++
+++static const struct snd_kcontrol_new portdinen_ctl =
+++	SOC_DAPM_SINGLE("Switch", CX2072X_PORTD_PIN_CTRL, 5, 1, 0);
+++
+++static const struct snd_kcontrol_new porteinen_ctl =
+++	SOC_DAPM_SINGLE("Switch", CX2072X_PORTE_PIN_CTRL, 5, 1, 0);
+++
+++static const struct snd_kcontrol_new i2sadc1l_ctl =
+++	SOC_DAPM_SINGLE("Switch", CX2072X_I2SPCM_CONTROL2, 0, 1, 0);
+++
+++static const struct snd_kcontrol_new i2sadc1r_ctl =
+++	SOC_DAPM_SINGLE("Switch", CX2072X_I2SPCM_CONTROL2, 1, 1, 0);
+++
+++static const struct snd_kcontrol_new i2sadc2l_ctl =
+++	SOC_DAPM_SINGLE("Switch", CX2072X_I2SPCM_CONTROL2, 2, 1, 0);
+++
+++static const struct snd_kcontrol_new i2sadc2r_ctl =
+++	SOC_DAPM_SINGLE("Switch", CX2072X_I2SPCM_CONTROL2, 3, 1, 0);
+++
+++static const struct snd_kcontrol_new i2sdac1l_ctl =
+++	SOC_DAPM_SINGLE("Switch", CX2072X_I2SPCM_CONTROL3, 0, 1, 0);
+++
+++static const struct snd_kcontrol_new i2sdac1r_ctl =
+++	SOC_DAPM_SINGLE("Switch", CX2072X_I2SPCM_CONTROL3, 1, 1, 0);
+++
+++static const struct snd_kcontrol_new i2sdac2l_ctl =
+++	SOC_DAPM_SINGLE("Switch", CX2072X_I2SPCM_CONTROL3, 2, 1, 0);
+++
+++static const struct snd_kcontrol_new i2sdac2r_ctl =
+++	SOC_DAPM_SINGLE("Switch", CX2072X_I2SPCM_CONTROL3, 3, 1, 0);
+++
+++static const char * const dac_enum_text[] = {
+++	"DAC1 Switch", "DAC2 Switch",
+++};
+++
+++static const struct soc_enum porta_dac_enum =
+++	SOC_ENUM_SINGLE(CX2072X_PORTA_CONNECTION_SELECT_CTRL, 0, 2,
+++			dac_enum_text);
+++
+++static const struct snd_kcontrol_new porta_mux =
+++	SOC_DAPM_ENUM("PortA Mux", porta_dac_enum);
+++
+++static const struct soc_enum portg_dac_enum =
+++	SOC_ENUM_SINGLE(CX2072X_PORTG_CONNECTION_SELECT_CTRL, 0, 2,
+++			dac_enum_text);
+++
+++static const struct snd_kcontrol_new portg_mux =
+++	SOC_DAPM_ENUM("PortG Mux", portg_dac_enum);
+++
+++static const struct soc_enum porte_dac_enum =
+++	SOC_ENUM_SINGLE(CX2072X_PORTE_CONNECTION_SELECT_CTRL, 0, 2,
+++			dac_enum_text);
+++
+++static const struct snd_kcontrol_new porte_mux =
+++	SOC_DAPM_ENUM("PortE Mux", porte_dac_enum);
+++
+++static const struct soc_enum portm_dac_enum =
+++	SOC_ENUM_SINGLE(CX2072X_PORTM_CONNECTION_SELECT_CTRL, 0, 2,
+++			dac_enum_text);
+++
+++static const struct snd_kcontrol_new portm_mux =
+++	SOC_DAPM_ENUM("PortM Mux", portm_dac_enum);
+++
+++static const char * const adc1in_sel_text[] = {
+++	"PortB Switch", "PortD Switch", "PortC Switch", "Widget15 Switch",
+++	"PortE Switch", "PortF Switch", "PortH Switch"
+++};
+++
+++static const struct soc_enum adc1in_sel_enum =
+++	SOC_ENUM_SINGLE(CX2072X_ADC1_CONNECTION_SELECT_CONTROL, 0, 7,
+++			adc1in_sel_text);
+++
+++static const struct snd_kcontrol_new adc1_mux =
+++	SOC_DAPM_ENUM("ADC1 Mux", adc1in_sel_enum);
+++
+++static const char * const adc2in_sel_text[] = {
+++	"PortC Switch", "Widget15 Switch", "PortH Switch"
+++};
+++
+++static const struct soc_enum adc2in_sel_enum =
+++	SOC_ENUM_SINGLE(CX2072X_ADC2_CONNECTION_SELECT_CONTROL, 0, 3,
+++			adc2in_sel_text);
+++
+++static const struct snd_kcontrol_new adc2_mux =
+++	SOC_DAPM_ENUM("ADC2 Mux", adc2in_sel_enum);
+++
+++static const struct snd_kcontrol_new wid15_mix[] = {
+++	SOC_DAPM_SINGLE("DAC1L Switch", CX2072X_MIXER_GAIN_LEFT_0, 7, 1, 1),
+++	SOC_DAPM_SINGLE("DAC1R Switch", CX2072X_MIXER_GAIN_RIGHT_0, 7, 1, 1),
+++	SOC_DAPM_SINGLE("DAC2L Switch", CX2072X_MIXER_GAIN_LEFT_1, 7, 1, 1),
+++	SOC_DAPM_SINGLE("DAC2R Switch", CX2072X_MIXER_GAIN_RIGHT_1, 7, 1, 1),
+++};
+++
+++#define CX2072X_DAPM_SUPPLY_S(wname, wsubseq, wreg, wshift, wmask,  won_val, \
+++	woff_val, wevent, wflags) \
+++	{.id = snd_soc_dapm_supply, .name = wname, .kcontrol_news = NULL, \
+++	.num_kcontrols = 0, .reg = wreg, .shift = wshift, .mask = wmask, \
+++	.on_val = won_val, .off_val = woff_val, \
+++	.subseq = wsubseq, .event = wevent, .event_flags = wflags}
+++
+++#define CX2072X_DAPM_SWITCH(wname,  wreg, wshift, wmask,  won_val, woff_val, \
+++	wevent, wflags) \
+++	{.id = snd_soc_dapm_switch, .name = wname, .kcontrol_news = NULL, \
+++	.num_kcontrols = 0, .reg = wreg, .shift = wshift, .mask = wmask, \
+++	.on_val = won_val, .off_val = woff_val, \
+++	.event = wevent, .event_flags = wflags}
+++
+++#define CX2072X_DAPM_SWITCH(wname,  wreg, wshift, wmask,  won_val, woff_val, \
+++	wevent, wflags) \
+++	{.id = snd_soc_dapm_switch, .name = wname, .kcontrol_news = NULL, \
+++	.num_kcontrols = 0, .reg = wreg, .shift = wshift, .mask = wmask, \
+++	.on_val = won_val, .off_val = woff_val, \
+++	.event = wevent, .event_flags = wflags}
+++
+++#define CX2072X_DAPM_REG_E(wid, wname, wreg, wshift, wmask, won_val, woff_val, \
+++	wevent, wflags) \
+++	{.id = wid, .name = wname, .kcontrol_news = NULL, .num_kcontrols = 0, \
+++	.reg = wreg, .shift = wshift, .mask = wmask, \
+++	.on_val = won_val, .off_val = woff_val, \
+++	.event = wevent, .event_flags = wflags}
+++
+++static const struct snd_soc_dapm_widget cx2072x_dapm_widgets[] = {
+++	/*Playback*/
+++	SND_SOC_DAPM_AIF_IN("In AIF", "Playback", 0, SND_SOC_NOPM, 0, 0),
+++
+++	SND_SOC_DAPM_SWITCH("I2S DAC1L", SND_SOC_NOPM, 0, 0, &i2sdac1l_ctl),
+++	SND_SOC_DAPM_SWITCH("I2S DAC1R", SND_SOC_NOPM, 0, 0, &i2sdac1r_ctl),
+++	SND_SOC_DAPM_SWITCH("I2S DAC2L", SND_SOC_NOPM, 0, 0, &i2sdac2l_ctl),
+++	SND_SOC_DAPM_SWITCH("I2S DAC2R", SND_SOC_NOPM, 0, 0, &i2sdac2r_ctl),
+++
+++	SND_SOC_DAPM_REG(snd_soc_dapm_dac, "DAC1", CX2072X_DAC1_POWER_STATE,
+++			 0, 0xFFF, 0x00, 0x03),
+++
+++	SND_SOC_DAPM_REG(snd_soc_dapm_dac, "DAC2", CX2072X_DAC2_POWER_STATE,
+++			 0, 0xFFF, 0x00, 0x03),
+++
+++	SND_SOC_DAPM_MUX("PortA Mux", SND_SOC_NOPM, 0, 0, &porta_mux),
+++	SND_SOC_DAPM_MUX("PortG Mux", SND_SOC_NOPM, 0, 0, &portg_mux),
+++	SND_SOC_DAPM_MUX("PortE Mux", SND_SOC_NOPM, 0, 0, &porte_mux),
+++	SND_SOC_DAPM_MUX("PortM Mux", SND_SOC_NOPM, 0, 0, &portm_mux),
+++
+++	SND_SOC_DAPM_REG(snd_soc_dapm_supply, "PortA Power",
+++			 CX2072X_PORTA_POWER_STATE, 0, 0XFFF, 0X00, 0X03),
+++
+++	SND_SOC_DAPM_REG(snd_soc_dapm_supply, "PortM Power",
+++			 CX2072X_PORTM_POWER_STATE, 0, 0XFFF, 0X00, 0X03),
+++
+++	CX2072X_DAPM_SUPPLY_S("PortG Power", 1, CX2072X_PORTG_POWER_STATE, 0,
+++			      0xFF, 0x00, 0x03, portg_power_ev,
+++			      SND_SOC_DAPM_POST_PMU),
+++
+++	CX2072X_DAPM_SUPPLY_S("AFG Power", 0, CX2072X_AFG_POWER_STATE,
+++			      0, 0xFFF, 0x00, 0x03, afg_power_ev,
+++			      SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_PRE_PMD),
+++
+++	SND_SOC_DAPM_SWITCH("PortA Out En", SND_SOC_NOPM, 0, 0,
+++			    &portaouten_ctl),
+++	SND_SOC_DAPM_SWITCH("PortE Out En", SND_SOC_NOPM, 0, 0,
+++			    &porteouten_ctl),
+++	SND_SOC_DAPM_SWITCH("PortG Out En", SND_SOC_NOPM, 0, 0,
+++			    &portgouten_ctl),
+++	SND_SOC_DAPM_SWITCH("PortM Out En", SND_SOC_NOPM, 0, 0,
+++			    &portmouten_ctl),
+++
+++	SND_SOC_DAPM_OUTPUT("PORTA"),
+++	SND_SOC_DAPM_OUTPUT("PORTG"),
+++	SND_SOC_DAPM_OUTPUT("PORTE"),
+++	SND_SOC_DAPM_OUTPUT("PORTM"),
+++	SND_SOC_DAPM_OUTPUT("AEC REF"),
+++
+++	/*Capture*/
+++	SND_SOC_DAPM_AIF_OUT("Out AIF", "Capture", 0, SND_SOC_NOPM, 0, 0),
+++	SND_SOC_DAPM_AIF_OUT("DSPDUAL AIF", "DSPDUAL Capture", 0,
+++			     SND_SOC_NOPM, 0, 0),
+++
+++	SND_SOC_DAPM_SWITCH("I2S ADC1L", SND_SOC_NOPM, 0, 0, &i2sadc1l_ctl),
+++	SND_SOC_DAPM_SWITCH("I2S ADC1R", SND_SOC_NOPM, 0, 0, &i2sadc1r_ctl),
+++	SND_SOC_DAPM_SWITCH("I2S ADC2L", SND_SOC_NOPM, 0, 0, &i2sadc2l_ctl),
+++	SND_SOC_DAPM_SWITCH("I2S ADC2R", SND_SOC_NOPM, 0, 0, &i2sadc2r_ctl),
+++
+++	CX2072X_DAPM_REG_E(snd_soc_dapm_adc, "ADC1", CX2072X_ADC1_POWER_STATE,
+++			   0, 0xFF, 0x00, 0x03, adc1_power_ev,
+++			   SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_POST_PMD),
+++
+++	SND_SOC_DAPM_REG(snd_soc_dapm_adc, "ADC2", CX2072X_ADC2_POWER_STATE,
+++			 0, 0xFF, 0x00, 0x03),
+++	SND_SOC_DAPM_MUX("ADC1 Mux", SND_SOC_NOPM, 0, 0, &adc1_mux),
+++	SND_SOC_DAPM_MUX("ADC2 Mux", SND_SOC_NOPM, 0, 0, &adc2_mux),
+++
+++	SND_SOC_DAPM_REG(snd_soc_dapm_supply, "PortB Power",
+++			 CX2072X_PORTB_POWER_STATE, 0, 0xFFF, 0x00, 0x03),
+++	SND_SOC_DAPM_REG(snd_soc_dapm_supply, "PortC Power",
+++			 CX2072X_PORTC_POWER_STATE, 0, 0xFFF, 0x00, 0x03),
+++	SND_SOC_DAPM_REG(snd_soc_dapm_supply, "PortD Power",
+++			 CX2072X_PORTD_POWER_STATE, 0, 0xFFF, 0x00, 0x03),
+++	SND_SOC_DAPM_REG(snd_soc_dapm_supply, "PortE Power",
+++			 CX2072X_PORTE_POWER_STATE, 0, 0xFFF, 0x00, 0x03),
+++	SND_SOC_DAPM_REG(snd_soc_dapm_supply, "Widget15 Power",
+++			 CX2072X_MIXER_POWER_STATE, 0, 0xFFF, 0x00, 0x03),
+++
+++	SND_SOC_DAPM_MIXER("Widget15 Mixer", SND_SOC_NOPM, 0, 0,
+++			   wid15_mix, ARRAY_SIZE(wid15_mix)),
+++	SND_SOC_DAPM_SWITCH("PortB In En", SND_SOC_NOPM, 0, 0, &portbinen_ctl),
+++	SND_SOC_DAPM_SWITCH("PortC In En", SND_SOC_NOPM, 0, 0, &portcinen_ctl),
+++	SND_SOC_DAPM_SWITCH("PortD In En", SND_SOC_NOPM, 0, 0, &portdinen_ctl),
+++	SND_SOC_DAPM_SWITCH("PortE In En", SND_SOC_NOPM, 0, 0, &porteinen_ctl),
+++
+++	SND_SOC_DAPM_MICBIAS("Headset Bias", CX2072X_ANALOG_TEST11, 1, 0),
+++	SND_SOC_DAPM_MICBIAS("PortB Mic Bias", CX2072X_PORTB_PIN_CTRL, 2, 0),
+++	SND_SOC_DAPM_MICBIAS("PortD Mic Bias", CX2072X_PORTD_PIN_CTRL, 2, 0),
+++	SND_SOC_DAPM_MICBIAS("PortE Mic Bias", CX2072X_PORTE_PIN_CTRL, 2, 0),
+++	SND_SOC_DAPM_INPUT("PORTB"),
+++	SND_SOC_DAPM_INPUT("PORTC"),
+++	SND_SOC_DAPM_INPUT("PORTD"),
+++	SND_SOC_DAPM_INPUT("PORTEIN"),
+++	SND_SOC_DAPM_INPUT("MIC"),
+++};
+++
+++static const struct snd_soc_dapm_route cx2072x_intercon[] = {
+++	/* Playback */
+++	{"In AIF", NULL, "AFG Power"},
+++	{"I2S DAC1L", "Switch", "In AIF"},
+++	{"I2S DAC1R", "Switch", "In AIF"},
+++	{"I2S DAC2L", "Switch", "In AIF"},
+++	{"I2S DAC2R", "Switch", "In AIF"},
+++	{"DAC1", NULL, "I2S DAC1L"},
+++	{"DAC1", NULL, "I2S DAC1R"},
+++	{"DAC2", NULL, "I2S DAC2L"},
+++	{"DAC2", NULL, "I2S DAC2R"},
+++	{"PortA Mux", "DAC1 Switch", "DAC1"},
+++	{"PortA Mux", "DAC2 Switch", "DAC2"},
+++	{"PortG Mux", "DAC1 Switch", "DAC1"},
+++	{"PortG Mux", "DAC2 Switch", "DAC2"},
+++	{"PortE Mux", "DAC1 Switch", "DAC1"},
+++	{"PortE Mux", "DAC2 Switch", "DAC2"},
+++	{"PortM Mux", "DAC1 Switch", "DAC1"},
+++	{"PortM Mux", "DAC2 Switch", "DAC2"},
+++	{"Widget15 Mixer", "DAC1L Switch", "DAC1"},
+++	{"Widget15 Mixer", "DAC1R Switch", "DAC2"},
+++	{"Widget15 Mixer", "DAC2L Switch", "DAC1"},
+++	{"Widget15 Mixer", "DAC2R Switch", "DAC2"},
+++	{"Widget15 Mixer", NULL, "Widget15 Power"},
+++	{"PortA Out En", "Switch", "PortA Mux"},
+++	{"PortG Out En", "Switch", "PortG Mux"},
+++	{"PortE Out En", "Switch", "PortE Mux"},
+++	{"PortM Out En", "Switch", "PortM Mux"},
+++	{"PortA Mux", NULL, "PortA Power"},
+++	{"PortG Mux", NULL, "PortG Power"},
+++	{"PortE Mux", NULL, "PortE Power"},
+++	{"PortM Mux", NULL, "PortM Power"},
+++	{"PortA Out En", NULL, "PortA Power"},
+++	{"PortG Out En", NULL, "PortG Power"},
+++	{"PortE Out En", NULL, "PortE Power"},
+++	{"PortM Out En", NULL, "PortM Power"},
+++	{"PORTA", NULL, "PortA Out En"},
+++	{"PORTG", NULL, "PortG Out En"},
+++	{"PORTE", NULL, "PortE Out En"},
+++	{"PORTM", NULL, "PortM Out En"},
+++
+++	/* Capture */
+++	{"PORTD", NULL, "Headset Bias"},
+++	{"PortB In En", "Switch", "PORTB"},
+++	{"PortC In En", "Switch", "PORTC"},
+++	{"PortD In En", "Switch", "PORTD"},
+++	{"PortE In En", "Switch", "PORTEIN"},
+++	{"PortB In En", NULL, "PortB Power"},
+++	{"PortC In En", NULL, "PortC Power"},
+++	{"PortD In En", NULL, "PortD Power"},
+++	{"PortE In En", NULL, "PortE Power"},
+++	{"ADC1 Mux", "PortB Switch", "PortB In En"},
+++	{"ADC1 Mux", "PortC Switch", "PortC In En"},
+++	{"ADC1 Mux", "PortD Switch", "PortD In En"},
+++	{"ADC1 Mux", "PortE Switch", "PortE In En"},
+++	{"ADC1 Mux", "Widget15 Switch", "Widget15 Mixer"},
+++	{"ADC2 Mux", "PortC Switch", "PortC In En"},
+++	{"ADC2 Mux", "Widget15 Switch", "Widget15 Mixer"},
+++	{"ADC1", NULL, "ADC1 Mux"},
+++	{"ADC2", NULL, "ADC2 Mux"},
+++	{"I2S ADC1L", "Switch", "ADC1"},
+++	{"I2S ADC1R", "Switch", "ADC1"},
+++	{"I2S ADC2L", "Switch", "ADC2"},
+++	{"I2S ADC2R", "Switch", "ADC2"},
+++	{"Out AIF", NULL, "I2S ADC1L"},
+++	{"Out AIF", NULL, "I2S ADC1R"},
+++	{"Out AIF", NULL, "I2S ADC2L"},
+++	{"Out AIF", NULL, "I2S ADC2R"},
+++	{"Out AIF", NULL, "AFG Power"},
+++	{"AEC REF", NULL, "Out AIF"},
+++	{"DSPDUAL AIF", NULL, "MIC"},
+++};
+++
+++
+++static void cx2072x_sw_reset(struct cx2072x_priv *cx2072x)
+++{
+++	regmap_write(cx2072x->regmap, CX2072X_AFG_FUNCTION_RESET, 0x01);
+++	regmap_write(cx2072x->regmap, CX2072X_AFG_FUNCTION_RESET, 0x01);
+++}
+++
+++#if (KERNEL_VERSION(4, 17, 0) <= LINUX_VERSION_CODE)
+++static int cx2072x_init(struct snd_soc_component *codec)
+++{
+++	int ch, band;
+++	struct cx2072x_priv *cx2072x = snd_soc_component_get_drvdata(codec);
+++#else
+++static int cx2072x_init(struct snd_soc_codec *codec)
+++{
+++	int ch, band;
+++	struct cx2072x_priv *cx2072x = snd_soc_codec_get_drvdata(codec);
+++#endif
+++	regmap_write(cx2072x->regmap, CX2072X_AFG_POWER_STATE, 0);
+++
+++	cx2072x->plbk_eq_changed = true;
+++	cx2072x->plbk_drc_changed = true;
+++
+++	/*use flat eq by default */
+++	for (ch = 0 ; ch < 2 ; ch++)
+++		for (band = 0; band < CX2072X_PLBK_EQ_BAND_NUM; band++) {
+++			cx2072x->plbk_eq[ch][band][1] = 64;
+++			cx2072x->plbk_eq[ch][band][10] = 3;
+++		}
+++
+++	/*enable bclk and EAPD input*/
+++	if (cx2072x->rev_id == CX2072X_REV_A2)
+++		regmap_update_bits(cx2072x->regmap, CX2072X_DIGITAL_BIOS_TEST2,
+++				   0x84, 0xFF);
+++
+++	return 0;
+++}
+++
+++#if (KERNEL_VERSION(4, 17, 0) <= LINUX_VERSION_CODE)
+++static int cx2072x_set_bias_level(struct snd_soc_component *codec,
+++				 enum snd_soc_bias_level level)
+++{
+++	struct cx2072x_priv *cx2072x = snd_soc_component_get_drvdata(codec);
+++#if (KERNEL_VERSION(4, 0, 0) <= LINUX_VERSION_CODE)
+++	const enum snd_soc_bias_level old_level =
+++		 snd_soc_component_get_bias_level(codec);
+++#else
+++	const enum snd_soc_bias_level old_level = codec->dapm.bias_level;
+++#endif
+++#else
+++static int cx2072x_set_bias_level(struct snd_soc_codec *codec,
+++				 enum snd_soc_bias_level level)
+++{
+++	struct cx2072x_priv *cx2072x = snd_soc_codec_get_drvdata(codec);
+++#if (KERNEL_VERSION(4, 0, 0) <= LINUX_VERSION_CODE)
+++	const enum snd_soc_bias_level old_level =
+++		 snd_soc_codec_get_bias_level(codec);
+++#else
+++	const enum snd_soc_bias_level old_level = codec->dapm.bias_level;
+++#endif
+++#endif
+++	int ret;
+++
+++	switch (level) {
+++	case SND_SOC_BIAS_ON:
+++		dev_dbg(cx2072x->dev, "SND_SOC_BIAS_ON\n");
+++		break;
+++	case SND_SOC_BIAS_PREPARE:
+++		dev_dbg(cx2072x->dev, "SND_SOC_BIAS_PREPARE\n");
+++		break;
+++	case SND_SOC_BIAS_STANDBY:
+++		dev_dbg(cx2072x->dev, "SND_SOC_BIAS_STANDBY\n");
+++
+++		if (old_level == SND_SOC_BIAS_OFF) {
+++			if (cx2072x->mclk) {
+++				dev_dbg(cx2072x->dev,
+++					"Turn on MCLK with rate %d\n",
+++					cx2072x->mclk_rate);
+++				ret = clk_prepare_enable(cx2072x->mclk);
+++				if (ret)
+++					return ret;
+++			}
+++			dev_dbg(codec->dev, "cache only =>false\n");
+++			regcache_cache_only(cx2072x->regmap, false);
+++			dev_dbg(codec->dev, "regcache_sync\n");
+++			regmap_write(cx2072x->regmap,
+++				     CX2072X_AFG_POWER_STATE, 0);
+++			regcache_sync(cx2072x->regmap);
+++			cx2072x->codec_power_on = 1;
+++			dev_dbg(codec->dev, "regcache_sync done\n");
+++		}
+++		break;
+++	case SND_SOC_BIAS_OFF:
+++		dev_dbg(cx2072x->dev, "SND_SOC_BIAS_OFF\n");
+++		/* Gracefully shutdwon codec*/
+++
+++		/*Shutdown codec completely*/
+++		mutex_lock(&cx2072x->cache_only_lock);
+++		cx2072x_sw_reset(cx2072x);
+++		regmap_write(cx2072x->regmap, CX2072X_AFG_POWER_STATE, 3);
+++		cx2072x->codec_power_on = 0;
+++		regcache_mark_dirty(cx2072x->regmap);
+++		regcache_cache_only(cx2072x->regmap, true);
+++		mutex_unlock(&cx2072x->cache_only_lock);
+++
+++		cx2072x->plbk_eq_changed = true;
+++		cx2072x->plbk_drc_changed = true;
+++		if (cx2072x->mclk) {
+++			/*delayed mclk shutdown for 200ms*/
+++			mdelay(200);
+++			dev_dbg(cx2072x->dev, "Turn off MCLK\n");
+++			clk_disable_unprepare(cx2072x->mclk);
+++		}
+++		break;
+++	}
+++#if (KERNEL_VERSION(4, 0, 0) > LINUX_VERSION_CODE)
+++	codec->dapm.bias_level = level;
+++#endif
+++	return 0;
+++}
+++
+++#if (KERNEL_VERSION(4, 17, 0) <= LINUX_VERSION_CODE)
+++static int cx2072x_probe(struct snd_soc_component *codec)
+++#else
+++static int cx2072x_probe(struct snd_soc_codec *codec)
+++#endif
+++{
+++#if (KERNEL_VERSION(4, 17, 0) <= LINUX_VERSION_CODE)
+++	struct cx2072x_priv *cx2072x = snd_soc_component_get_drvdata(codec);
+++#else
+++	struct cx2072x_priv *cx2072x = snd_soc_codec_get_drvdata(codec);
+++#endif
+++	int ret = 0;
+++	unsigned int ven_id;
+++
+++	cx2072x->codec = codec;
+++#if (KERNEL_VERSION(4, 17, 0) > LINUX_VERSION_CODE)
+++	codec->control_data = cx2072x->regmap;
+++#endif
+++
+++	dev_dbg(codec->dev, "driver version: %s\n", DRIVER_VERSION);
+++	regmap_read(cx2072x->regmap, CX2072X_VENDOR_ID, &ven_id);
+++	regmap_read(cx2072x->regmap, CX2072X_REVISION_ID, &cx2072x->rev_id);
+++	dev_info(codec->dev, "codec version: %08x,%08x\n",
+++		 ven_id, cx2072x->rev_id);
+++
+++	/* Check if MCLK is specified, if not the clock is control by machine
+++	 * driver
+++	 */
+++	cx2072x->mclk = devm_clk_get(codec->dev, "mclk");
+++	if (IS_ERR(cx2072x->mclk)) {
+++		ret = PTR_ERR(cx2072x->mclk);
+++		if (ret == -ENOENT) {
+++			if (IS_ERR(cx2072x->mclk)) {
+++				dev_warn(codec->dev, "Assuming static MCLK\n");
+++					 cx2072x->mclk = NULL;
+++				ret = 0;
+++			}
+++		} else {
+++			dev_err(codec->dev, "Failed to get MCLK: %d\n", ret);
+++			return ret;
+++		}
+++	}
+++
+++	dev_dbg(codec->dev, "Initialize codec\n");
+++
+++	/* enable clock for codec access*/
+++	if (cx2072x->mclk)
+++		ret = clk_prepare_enable(cx2072x->mclk);
+++
+++	cx2072x_init(codec);
+++
+++	ret = regmap_register_patch(cx2072x->regmap, cx2072x_patch,
+++				    ARRAY_SIZE(cx2072x_patch));
+++	if (ret)
+++		return ret;
+++	regmap_write(cx2072x->regmap, CX2072X_AFG_POWER_STATE, 3);
+++	regcache_cache_only(cx2072x->regmap, true);
+++	cx2072x->codec_power_on = 0;
+++
+++	/* disable clock */
+++	if (cx2072x->mclk)
+++		clk_disable_unprepare(cx2072x->mclk);
+++	return ret;
+++}
+++#if (KERNEL_VERSION(4, 17, 0) <= LINUX_VERSION_CODE)
+++static void cx2072x_remove(struct snd_soc_component *codec)
+++{
+++	snd_soc_component_force_bias_level(codec, SND_SOC_BIAS_OFF);
+++}
+++#else
+++static int cx2072x_remove(struct snd_soc_codec *codec)
+++{
+++	/*power off device*/
+++#if (KERNEL_VERSION(4, 2, 0) <= LINUX_VERSION_CODE)
+++	snd_soc_codec_force_bias_level(codec, SND_SOC_BIAS_OFF);
+++#else
+++	cx2072x_set_bias_level(codec, SND_SOC_BIAS_OFF);
+++#endif
+++
+++	return 0;
+++}
+++#endif
+++
+++#ifdef CONFIG_PM
+++static int cx2072x_runtime_suspend(struct device *dev)
+++{
+++	struct cx2072x_priv *cx2072x = dev_get_drvdata(dev);
+++
+++	dev_dbg(cx2072x->codec->dev, "%s----%d\n", __func__, __LINE__);
+++
+++	return 0;
+++}
+++
+++static int cx2072x_runtime_resume(struct device *dev)
+++{
+++	struct cx2072x_priv *cx2072x = dev_get_drvdata(dev);
+++
+++	dev_dbg(cx2072x->codec->dev, "%s----%d\n", __func__, __LINE__);
+++
+++	return 0;
+++}
+++#else
+++#define cx2072x_suspend NULL
+++#define cx2072x_resume NULL
+++#endif
+++
+++static bool cx2072x_readable_register(struct device *dev, unsigned int reg)
+++{
+++	switch (reg) {
+++
+++	case CX2072X_VENDOR_ID:
+++	case CX2072X_REVISION_ID:
+++	case CX2072X_CURRENT_BCLK_FREQUENCY:
+++	case CX2072X_AFG_POWER_STATE:
+++	case CX2072X_UM_RESPONSE:
+++	case CX2072X_GPIO_DATA:
+++	case CX2072X_GPIO_ENABLE:
+++	case CX2072X_GPIO_DIRECTION:
+++	case CX2072X_GPIO_WAKE:
+++	case CX2072X_GPIO_UM_ENABLE:
+++	case CX2072X_GPIO_STICKY_MASK:
+++	case CX2072X_DAC1_CONVERTER_FORMAT:
+++	case CX2072X_DAC1_AMP_GAIN_RIGHT:
+++	case CX2072X_DAC1_AMP_GAIN_LEFT:
+++	case CX2072X_DAC1_POWER_STATE:
+++	case CX2072X_DAC1_CONVERTER_STREAM_CHANNEL:
+++	case CX2072X_DAC1_EAPD_ENABLE:
+++	case CX2072X_DAC2_CONVERTER_FORMAT:
+++	case CX2072X_DAC2_AMP_GAIN_RIGHT:
+++	case CX2072X_DAC2_AMP_GAIN_LEFT:
+++	case CX2072X_DAC2_POWER_STATE:
+++	case CX2072X_DAC2_CONVERTER_STREAM_CHANNEL:
+++	case CX2072X_ADC1_CONVERTER_FORMAT:
+++	case CX2072X_ADC1_AMP_GAIN_RIGHT_0:
+++	case CX2072X_ADC1_AMP_GAIN_LEFT_0:
+++	case CX2072X_ADC1_AMP_GAIN_RIGHT_1:
+++	case CX2072X_ADC1_AMP_GAIN_LEFT_1:
+++	case CX2072X_ADC1_AMP_GAIN_RIGHT_2:
+++	case CX2072X_ADC1_AMP_GAIN_LEFT_2:
+++	case CX2072X_ADC1_AMP_GAIN_RIGHT_3:
+++	case CX2072X_ADC1_AMP_GAIN_LEFT_3:
+++	case CX2072X_ADC1_AMP_GAIN_RIGHT_4:
+++	case CX2072X_ADC1_AMP_GAIN_LEFT_4:
+++	case CX2072X_ADC1_AMP_GAIN_RIGHT_5:
+++	case CX2072X_ADC1_AMP_GAIN_LEFT_5:
+++	case CX2072X_ADC1_AMP_GAIN_RIGHT_6:
+++	case CX2072X_ADC1_AMP_GAIN_LEFT_6:
+++	case CX2072X_ADC1_CONNECTION_SELECT_CONTROL:
+++	case CX2072X_ADC1_POWER_STATE:
+++	case CX2072X_ADC1_CONVERTER_STREAM_CHANNEL:
+++	case CX2072X_ADC2_CONVERTER_FORMAT:
+++	case CX2072X_ADC2_AMP_GAIN_RIGHT_0:
+++	case CX2072X_ADC2_AMP_GAIN_LEFT_0:
+++	case CX2072X_ADC2_AMP_GAIN_RIGHT_1:
+++	case CX2072X_ADC2_AMP_GAIN_LEFT_1:
+++	case CX2072X_ADC2_AMP_GAIN_RIGHT_2:
+++	case CX2072X_ADC2_AMP_GAIN_LEFT_2:
+++	case CX2072X_ADC2_CONNECTION_SELECT_CONTROL:
+++	case CX2072X_ADC2_POWER_STATE:
+++	case CX2072X_ADC2_CONVERTER_STREAM_CHANNEL:
+++	case CX2072X_PORTA_CONNECTION_SELECT_CTRL:
+++	case CX2072X_PORTA_POWER_STATE:
+++	case CX2072X_PORTA_PIN_CTRL:
+++	case CX2072X_PORTA_UNSOLICITED_RESPONSE:
+++	case CX2072X_PORTA_PIN_SENSE:
+++	case CX2072X_PORTA_EAPD_BTL:
+++	case CX2072X_PORTB_POWER_STATE:
+++	case CX2072X_PORTB_PIN_CTRL:
+++	case CX2072X_PORTB_UNSOLICITED_RESPONSE:
+++	case CX2072X_PORTB_PIN_SENSE:
+++	case CX2072X_PORTB_EAPD_BTL:
+++	case CX2072X_PORTB_GAIN_RIGHT:
+++	case CX2072X_PORTB_GAIN_LEFT:
+++	case CX2072X_PORTC_POWER_STATE:
+++	case CX2072X_PORTC_PIN_CTRL:
+++	case CX2072X_PORTC_GAIN_RIGHT:
+++	case CX2072X_PORTC_GAIN_LEFT:
+++	case CX2072X_PORTD_POWER_STATE:
+++	case CX2072X_PORTD_PIN_CTRL:
+++	case CX2072X_PORTD_UNSOLICITED_RESPONSE:
+++	case CX2072X_PORTD_PIN_SENSE:
+++	case CX2072X_PORTD_GAIN_RIGHT:
+++	case CX2072X_PORTD_GAIN_LEFT:
+++	case CX2072X_PORTE_CONNECTION_SELECT_CTRL:
+++	case CX2072X_PORTE_POWER_STATE:
+++	case CX2072X_PORTE_PIN_CTRL:
+++	case CX2072X_PORTE_UNSOLICITED_RESPONSE:
+++	case CX2072X_PORTE_PIN_SENSE:
+++	case CX2072X_PORTE_EAPD_BTL:
+++	case CX2072X_PORTE_GAIN_RIGHT:
+++	case CX2072X_PORTE_GAIN_LEFT:
+++	case CX2072X_PORTF_POWER_STATE:
+++	case CX2072X_PORTF_PIN_CTRL:
+++	case CX2072X_PORTF_UNSOLICITED_RESPONSE:
+++	case CX2072X_PORTF_PIN_SENSE:
+++	case CX2072X_PORTF_GAIN_RIGHT:
+++	case CX2072X_PORTF_GAIN_LEFT:
+++	case CX2072X_PORTG_POWER_STATE:
+++	case CX2072X_PORTG_PIN_CTRL:
+++	case CX2072X_PORTG_CONNECTION_SELECT_CTRL:
+++	case CX2072X_PORTG_EAPD_BTL:
+++	case CX2072X_PORTM_POWER_STATE:
+++	case CX2072X_PORTM_PIN_CTRL:
+++	case CX2072X_PORTM_CONNECTION_SELECT_CTRL:
+++	case CX2072X_PORTM_EAPD_BTL:
+++	case CX2072X_MIXER_POWER_STATE:
+++	case CX2072X_MIXER_GAIN_RIGHT_0:
+++	case CX2072X_MIXER_GAIN_LEFT_0:
+++	case CX2072X_MIXER_GAIN_RIGHT_1:
+++	case CX2072X_MIXER_GAIN_LEFT_1:
+++	case CX2072X_EQ_ENABLE_BYPASS:
+++	case CX2072X_EQ_B0_COEFF:
+++	case CX2072X_EQ_B1_COEFF:
+++	case CX2072X_EQ_B2_COEFF:
+++	case CX2072X_EQ_A1_COEFF:
+++	case CX2072X_EQ_A2_COEFF:
+++	case CX2072X_EQ_G_COEFF:
+++	case CX2072X_SPKR_DRC_ENABLE_STEP:
+++	case CX2072X_SPKR_DRC_CONTROL:
+++	case CX2072X_SPKR_DRC_TEST:
+++	case CX2072X_DIGITAL_BIOS_TEST0:
+++	case CX2072X_DIGITAL_BIOS_TEST2:
+++	case CX2072X_I2SPCM_CONTROL1:
+++	case CX2072X_I2SPCM_CONTROL2:
+++	case CX2072X_I2SPCM_CONTROL3:
+++	case CX2072X_I2SPCM_CONTROL4:
+++	case CX2072X_I2SPCM_CONTROL5:
+++	case CX2072X_I2SPCM_CONTROL6:
+++	case CX2072X_UM_INTERRUPT_CRTL_E:
+++	case CX2072X_CODEC_TEST2:
+++	case CX2072X_CODEC_TEST9:
+++	case CX2072X_CODEC_TEST20:
+++	case CX2072X_CODEC_TEST26:
+++	case CX2072X_ANALOG_TEST4:
+++	case CX2072X_ANALOG_TEST5:
+++	case CX2072X_ANALOG_TEST6:
+++	case CX2072X_ANALOG_TEST7:
+++	case CX2072X_ANALOG_TEST8:
+++	case CX2072X_ANALOG_TEST9:
+++	case CX2072X_ANALOG_TEST10:
+++	case CX2072X_ANALOG_TEST11:
+++	case CX2072X_ANALOG_TEST12:
+++	case CX2072X_ANALOG_TEST13:
+++	case CX2072X_DIGITAL_TEST0:
+++	case CX2072X_DIGITAL_TEST1:
+++	case CX2072X_DIGITAL_TEST11:
+++	case CX2072X_DIGITAL_TEST12:
+++	case CX2072X_DIGITAL_TEST15:
+++	case CX2072X_DIGITAL_TEST16:
+++	case CX2072X_DIGITAL_TEST17:
+++	case CX2072X_DIGITAL_TEST18:
+++	case CX2072X_DIGITAL_TEST19:
+++	case CX2072X_DIGITAL_TEST20:
+++		return true;
+++	default:
+++		return false;
+++	}
+++}
+++
+++static bool cx2072x_volatile_register(struct device *dev, unsigned int reg)
+++{
+++	switch (reg) {
+++	case CX2072X_VENDOR_ID:
+++	case CX2072X_REVISION_ID:
+++	case CX2072X_UM_INTERRUPT_CRTL_E:
+++	case CX2072X_DIGITAL_TEST11:
+++	case CX2072X_PORTA_PIN_SENSE:
+++	case CX2072X_PORTB_PIN_SENSE:
+++	case CX2072X_PORTD_PIN_SENSE:
+++	case CX2072X_PORTE_PIN_SENSE:
+++	case CX2072X_PORTF_PIN_SENSE:
+++	case CX2072X_EQ_G_COEFF:
+++	case CX2072X_EQ_BAND:
+++		return true;
+++	default:
+++		return false;
+++
+++	}
+++}
+++
+++#if (KERNEL_VERSION(4, 17, 0) <= LINUX_VERSION_CODE)
+++static const struct snd_soc_component_driver soc_component_driver_cx2072x = {
+++	.probe = cx2072x_probe,
+++	.remove = cx2072x_remove,
+++	.controls = cx2072x_snd_controls,
+++	.num_controls = ARRAY_SIZE(cx2072x_snd_controls),
+++	.dapm_widgets = cx2072x_dapm_widgets,
+++	.num_dapm_widgets = ARRAY_SIZE(cx2072x_dapm_widgets),
+++	.dapm_routes = cx2072x_intercon,
+++	.num_dapm_routes = ARRAY_SIZE(cx2072x_intercon),
+++	.set_bias_level = cx2072x_set_bias_level,
+++	.idle_bias_on = true,
+++	.suspend_bias_off = true,
+++};
+++#else
+++static struct snd_soc_codec_driver soc_codec_driver_cx2072x = {
+++	.probe = cx2072x_probe,
+++	.remove = cx2072x_remove,
+++	.set_bias_level = cx2072x_set_bias_level,
+++#if (KERNEL_VERSION(3, 18, 0) <= LINUX_VERSION_CODE)
+++	.suspend_bias_off = true,
+++#endif
+++	.idle_bias_off = true,
+++#if (KERNEL_VERSION(3, 18, 0) <= LINUX_VERSION_CODE)
+++	.component_driver = {
+++		.controls = cx2072x_snd_controls,
+++		.num_controls = ARRAY_SIZE(cx2072x_snd_controls),
+++		.dapm_widgets = cx2072x_dapm_widgets,
+++		.num_dapm_widgets = ARRAY_SIZE(cx2072x_dapm_widgets),
+++		.dapm_routes = cx2072x_intercon,
+++		.num_dapm_routes = ARRAY_SIZE(cx2072x_intercon),
+++	},
+++#else
+++	.controls = cx2072x_snd_controls,
+++	.num_controls = ARRAY_SIZE(cx2072x_snd_controls),
+++	.dapm_widgets = cx2072x_dapm_widgets,
+++	.num_dapm_widgets = ARRAY_SIZE(cx2072x_dapm_widgets),
+++	.dapm_routes = cx2072x_intercon,
+++	.num_dapm_routes = ARRAY_SIZE(cx2072x_intercon),
+++#endif
+++};
+++#endif
+++
+++
+++/*
+++ * DAI ops
+++ */
+++static struct snd_soc_dai_ops cx2072x_dai_ops = {
+++	.set_sysclk = cx2072x_set_dai_sysclk,
+++	.set_fmt = cx2072x_set_dai_fmt,
+++	.hw_params = cx2072x_hw_params,
+++#if (KERNEL_VERSION(3, 13, 0) <= LINUX_VERSION_CODE)
+++	.set_bclk_ratio = cx2072x_set_dai_bclk_ratio,
+++#endif
+++};
+++
+++static int cx2072x_dsp_dai_probe(struct snd_soc_dai *dai)
+++{
+++	struct cx2072x_priv *cx2072x = cx2072x_dai_get_drvdata(dai);
+++
+++	dev_dbg(cx2072x->codec->dev, "dsp_dai_probe()\n");
+++
+++	cx2072x->en_aec_ref = true;
+++	cx2072x->num_chan_sel = 1;
+++	return 0;
+++}
+++
+++#define CX2072X_FORMATS (SNDRV_PCM_FMTBIT_S16_LE \
+++			| SNDRV_PCM_FMTBIT_S24_LE)
+++
+++static struct snd_soc_dai_driver soc_codec_cx2072x_dai[] = {
+++	{ /* playback and capture */
+++		.name = "cx2072x-hifi",
+++		.id	= CX2072X_DAI_HIFI,
+++		.playback = {
+++			.stream_name = "Playback",
+++			.channels_min = 1,
+++			.channels_max = 2,
+++			.rates = CX2072X_RATES_DSP,
+++			.formats = CX2072X_FORMATS,
+++		},
+++		.capture = {
+++			.stream_name = "Capture",
+++			.channels_min = 1,
+++			.channels_max = 2,
+++			.rates = CX2072X_RATES_DSP,
+++			.formats = CX2072X_FORMATS,
+++		},
+++		.ops = &cx2072x_dai_ops,
+++		.symmetric_rates = 1,
+++	},
+++	{ /* plabayck only, return echo reference to Conexant DSP chip*/
+++		.name = "cx2072x-dsp",
+++		.id	= CX2072X_DAI_DSP,
+++		.probe = cx2072x_dsp_dai_probe,
+++		.playback = {
+++			.stream_name = "Playback",
+++			.channels_min = 2,
+++			.channels_max = 2,
+++			.rates = CX2072X_RATES_DSP,
+++			.formats = CX2072X_FORMATS,
+++		},
+++		.ops = &cx2072x_dai_ops,
+++	},
+++	{ /* plabayck and a virtual record */
+++		.name = "cx2072x-dsp-dual",
+++		.id	= CX2072X_DAI_DSP_DUAL,
+++		.probe = cx2072x_dsp_dai_probe,
+++		.playback = {
+++			.stream_name = "Playback",
+++			.channels_min = 2,
+++			.channels_max = 2,
+++			.rates = CX2072X_RATES_DSP,
+++			.formats = CX2072X_FORMATS,
+++		},
+++		.capture = {
+++			.stream_name = "DSPDUAL Capture",
+++			.channels_min = 2,
+++			.channels_max = 2,
+++			.rates = CX2072X_RATES_DSP,
+++			.formats = CX2072X_FORMATS,
+++		},
+++		.ops = &cx2072x_dai_ops,
+++	},
+++	{ /* plabayck only, return echo reference through I2S TX*/
+++		.name = "cx2072x-aec",
+++		.id	= 3,
+++		.capture = {
+++			.stream_name = "Capture",
+++			.channels_min = 2,
+++			.channels_max = 2,
+++			.rates = CX2072X_RATES_DSP,
+++			.formats = CX2072X_FORMATS,
+++		},
+++	},
+++};
+++EXPORT_SYMBOL_GPL(soc_codec_cx2072x_dai);
+++
+++static const struct regmap_config cx2072x_regmap = {
+++	.reg_bits = 16,
+++	.val_bits = 32,
+++	.max_register = CX2072X_REG_MAX, .reg_defaults = cx2072x_reg_defaults,
+++	.num_reg_defaults = ARRAY_SIZE(cx2072x_reg_defaults),
+++	.cache_type = REGCACHE_RBTREE,
+++	.readable_reg = cx2072x_readable_register,
+++	.volatile_reg = cx2072x_volatile_register,
+++	/* Needs custom READ/WRITE functions
+++	 * for various register lengths.
+++	 */
+++	.reg_read = cx2072x_reg_read,
+++	.reg_write = cx2072x_reg_write,
+++};
+++
+++static int cx2072x_i2c_probe(struct i2c_client *i2c,
+++			    const struct i2c_device_id *id)
+++{
+++	int ret = -1;
+++	struct cx2072x_priv *cx2072x;
+++
+++	cx2072x = (struct cx2072x_priv *)devm_kzalloc(&i2c->dev,
+++				sizeof(struct cx2072x_priv), GFP_KERNEL);
+++	if (cx2072x == NULL) {
+++		dev_err(&i2c->dev, "Out of memory!\n");
+++		return -ENOMEM;
+++	}
+++
+++	cx2072x->regmap = devm_regmap_init(&i2c->dev, NULL, i2c,
+++					   &cx2072x_regmap);
+++	if (IS_ERR(&cx2072x->regmap)) {
+++		ret = PTR_ERR(cx2072x->regmap);
+++		dev_err(&i2c->dev, "Failed to init regmap: %d\n", ret);
+++		return ret;
+++	}
+++
+++	mutex_init(&cx2072x->eq_coeff_lock);
+++	mutex_init(&cx2072x->cache_only_lock);
+++
+++	i2c_set_clientdata(i2c, cx2072x);
+++
+++	cx2072x->dev = &i2c->dev;
+++	cx2072x->pll_changed = true;
+++	cx2072x->i2spcm_changed = true;
+++
+++	/* sets the frame size to
+++	 * Frame size = number of channel * sample width
+++	 */
+++	cx2072x->bclk_ratio = 0;
+++#if (KERNEL_VERSION(4, 17, 0) <= LINUX_VERSION_CODE)
+++	ret = devm_snd_soc_register_component(cx2072x->dev,
+++				&soc_component_driver_cx2072x,
+++				soc_codec_cx2072x_dai,
+++				ARRAY_SIZE(soc_codec_cx2072x_dai));
+++#else
+++	ret = snd_soc_register_codec(cx2072x->dev, &soc_codec_driver_cx2072x,
+++				     soc_codec_cx2072x_dai,
+++				     ARRAY_SIZE(soc_codec_cx2072x_dai));
+++#endif
+++	if (ret < 0)
+++		dev_err(cx2072x->dev,
+++			"Failed to register codec: %d\n", ret);
+++	else
+++		dev_dbg(cx2072x->dev,
+++			"%s: Register codec.\n", __func__);
+++
+++	return ret;
+++}
+++
+++static int cx2072x_i2c_remove(struct i2c_client *client)
+++{
+++#if (KERNEL_VERSION(4, 17, 0) <= LINUX_VERSION_CODE)
+++	snd_soc_unregister_component(&client->dev);
+++#else
+++	snd_soc_unregister_codec(&client->dev);
+++#endif
+++
+++	return 0;
+++}
+++
+++static void cx2072x_i2c_shutdown(struct i2c_client *client)
+++{
+++	struct cx2072x_priv *cx2072x = i2c_get_clientdata(client);
+++
+++	dev_dbg(cx2072x->dev, "i2c_shutdown()\n");
+++}
+++
+++
+++const struct dev_pm_ops cx2072x_pm_ops = {
+++	SET_RUNTIME_PM_OPS(cx2072x_runtime_suspend, cx2072x_runtime_resume,
+++			   NULL)
+++};
+++static const struct i2c_device_id cx2072x_i2c_id[] = {
+++	{ "cx20721", 0 },
+++	{ "cx20723", 0 },
+++	{}
+++};
+++MODULE_DEVICE_TABLE(i2c, cx2072x_i2c_id);
+++
+++static const struct of_device_id cx2072x_of_match[] = {
+++	{ .compatible = "cnxt,cx20721", },
+++	{ .compatible = "cnxt,cx20723", },
+++	{ .compatible = "cnxt,cx7601", },
+++	{}
+++};
+++MODULE_DEVICE_TABLE(of, cx2072x_of_match);
+++
+++#ifdef CONFIG_ACPI
+++static struct acpi_device_id cx2072x_acpi_match[] = {
+++	{ "14F10720", 0 },
+++	{},
+++};
+++MODULE_DEVICE_TABLE(acpi, cx2072x_acpi_match);
+++#endif
+++
+++static struct i2c_driver cx2072x_i2c_driver = {
+++	.probe = cx2072x_i2c_probe,
+++	.remove = cx2072x_i2c_remove,
+++	.shutdown = cx2072x_i2c_shutdown,
+++	.id_table = cx2072x_i2c_id,
+++	.driver = {
+++		.name = "cx2072x",
+++#if (KERNEL_VERSION(4, 11, 0) >= LINUX_VERSION_CODE)
+++		.owner = THIS_MODULE,
+++#endif
+++		.of_match_table = cx2072x_of_match,
+++#ifdef CONFIG_ACPI
+++		.acpi_match_table = ACPI_PTR(cx2072x_acpi_match),
+++#endif
+++		.pm	= &cx2072x_pm_ops,
+++	},
+++};
+++
+++module_i2c_driver(cx2072x_i2c_driver);
+++
+++MODULE_DESCRIPTION("ASoC cx2072x Codec Driver");
+++MODULE_AUTHOR("Simon Ho <simon.ho@conexant.com>");
+++MODULE_LICENSE("GPL");
++diff --git a/sound/soc/codecs/cx2072x.h b/sound/soc/codecs/cx2072x.h
++new file mode 100644
++index 000000000000..1ac494d2bda7
++--- /dev/null
+++++ b/sound/soc/codecs/cx2072x.h
++@@ -0,0 +1,327 @@
+++/*
+++ * ALSA SoC CX20721/CX20723 codec driver
+++ *
+++ * Copyright:	(C) 2017 Conexant Systems, Inc.
+++ * Author:	Simon Ho, <Simon.ho@conexant.com>
+++ *
+++ * This program is free software; you can redistribute it and/or modify
+++ * it under the terms of the GNU General Public License version 2 as
+++ * published by the Free Software Foundation.
+++ *
+++ *************************************************************************
+++ *  Modified Date:  10/15/18
+++ *  File Version:   4.4.65
+++ ************************************************************************/
+++#include <linux/version.h>
+++#define NUM_OF_DAI 1
+++#define CX2072X_MCLK_PLL 1
+++#define CX2072X_MCLK_EXTERNAL_PLL 1
+++#define CX2072X_MCLK_INTERNAL_OSC 2
+++
+++/*#define CX2072X_RATES		SNDRV_PCM_RATE_8000_192000*/
+++#define CX2072X_RATES_DSP	SNDRV_PCM_RATE_48000
+++
+++#define CX2072X_REG_MAX 0x8a3c
+++#define AUDDRV_VERSION(major0, major1, minor, build) \
+++		((major0) << 24 | (major1) << 16 | (minor) << 8 | (build))
+++
+++#define CX2072X_VENDOR_ID				 0x0200
+++#define CX2072X_REVISION_ID				 0x0208
+++#define CX2072X_CURRENT_BCLK_FREQUENCY			 0x00dc
+++#define CX2072X_AFG_POWER_STATE				 0x0414
+++#define CX2072X_UM_RESPONSE				 0x0420
+++#define CX2072X_GPIO_DATA				 0x0454
+++#define CX2072X_GPIO_ENABLE				 0x0458
+++#define CX2072X_GPIO_DIRECTION				 0x045c
+++#define CX2072X_GPIO_WAKE				 0x0460
+++#define CX2072X_GPIO_UM_ENABLE				 0x0464
+++#define CX2072X_GPIO_STICKY_MASK			 0x0468
+++#define CX2072X_AFG_FUNCTION_RESET			 0x07FC
+++#define CX2072X_DAC1_CONVERTER_FORMAT			 0x43c8
+++#define CX2072X_DAC1_AMP_GAIN_RIGHT			 0x41c0
+++#define CX2072X_DAC1_AMP_GAIN_LEFT			 0x41e0
+++#define CX2072X_DAC1_POWER_STATE			 0x4014
+++#define CX2072X_DAC1_CONVERTER_STREAM_CHANNEL		 0x4018
+++#define CX2072X_DAC1_EAPD_ENABLE			 0x4030
+++#define CX2072X_DAC2_CONVERTER_FORMAT			 0x47c8
+++#define CX2072X_DAC2_AMP_GAIN_RIGHT			 0x45c0
+++#define CX2072X_DAC2_AMP_GAIN_LEFT			 0x45e0
+++#define CX2072X_DAC2_POWER_STATE			 0x4414
+++#define CX2072X_DAC2_CONVERTER_STREAM_CHANNEL		 0x4418
+++#define CX2072X_ADC1_CONVERTER_FORMAT			 0x4fc8
+++#define CX2072X_ADC1_AMP_GAIN_RIGHT_0			 0x4d80
+++#define CX2072X_ADC1_AMP_GAIN_LEFT_0			 0x4da0
+++#define CX2072X_ADC1_AMP_GAIN_RIGHT_1			 0x4d84
+++#define CX2072X_ADC1_AMP_GAIN_LEFT_1			 0x4da4
+++#define CX2072X_ADC1_AMP_GAIN_RIGHT_2			 0x4d88
+++#define CX2072X_ADC1_AMP_GAIN_LEFT_2			 0x4da8
+++#define CX2072X_ADC1_AMP_GAIN_RIGHT_3			 0x4d8c
+++#define CX2072X_ADC1_AMP_GAIN_LEFT_3			 0x4dac
+++#define CX2072X_ADC1_AMP_GAIN_RIGHT_4			 0x4d90
+++#define CX2072X_ADC1_AMP_GAIN_LEFT_4			 0x4db0
+++#define CX2072X_ADC1_AMP_GAIN_RIGHT_5			 0x4d94
+++#define CX2072X_ADC1_AMP_GAIN_LEFT_5			 0x4db4
+++#define CX2072X_ADC1_AMP_GAIN_RIGHT_6			 0x4d98
+++#define CX2072X_ADC1_AMP_GAIN_LEFT_6			 0x4db8
+++#define CX2072X_ADC1_CONNECTION_SELECT_CONTROL		 0x4c04
+++#define CX2072X_ADC1_POWER_STATE			 0x4c14
+++#define CX2072X_ADC1_CONVERTER_STREAM_CHANNEL		 0x4c18
+++#define CX2072X_ADC2_CONVERTER_FORMAT			 0x53c8
+++#define CX2072X_ADC2_AMP_GAIN_RIGHT_0			 0x5180
+++#define CX2072X_ADC2_AMP_GAIN_LEFT_0			 0x51a0
+++#define CX2072X_ADC2_AMP_GAIN_RIGHT_1			 0x5184
+++#define CX2072X_ADC2_AMP_GAIN_LEFT_1			 0x51a4
+++#define CX2072X_ADC2_AMP_GAIN_RIGHT_2			 0x5188
+++#define CX2072X_ADC2_AMP_GAIN_LEFT_2			 0x51a8
+++#define CX2072X_ADC2_CONNECTION_SELECT_CONTROL		 0x5004
+++#define CX2072X_ADC2_POWER_STATE			 0x5014
+++#define CX2072X_ADC2_CONVERTER_STREAM_CHANNEL		 0x5018
+++#define CX2072X_PORTA_CONNECTION_SELECT_CTRL		 0x5804
+++#define CX2072X_PORTA_POWER_STATE			 0x5814
+++#define CX2072X_PORTA_PIN_CTRL				 0x581c
+++#define CX2072X_PORTA_UNSOLICITED_RESPONSE		 0x5820
+++#define CX2072X_PORTA_PIN_SENSE				 0x5824
+++#define CX2072X_PORTA_EAPD_BTL				 0x5830
+++#define CX2072X_PORTB_POWER_STATE			 0x6014
+++#define CX2072X_PORTB_PIN_CTRL				 0x601c
+++#define CX2072X_PORTB_UNSOLICITED_RESPONSE		 0x6020
+++#define CX2072X_PORTB_PIN_SENSE				 0x6024
+++#define CX2072X_PORTB_EAPD_BTL				 0x6030
+++#define CX2072X_PORTB_GAIN_RIGHT			 0x6180
+++#define CX2072X_PORTB_GAIN_LEFT				 0x61a0
+++#define CX2072X_PORTC_POWER_STATE			 0x6814
+++#define CX2072X_PORTC_PIN_CTRL				 0x681c
+++#define CX2072X_PORTC_GAIN_RIGHT			 0x6980
+++#define CX2072X_PORTC_GAIN_LEFT				 0x69a0
+++#define CX2072X_PORTD_POWER_STATE			 0x6414
+++#define CX2072X_PORTD_PIN_CTRL				 0x641c
+++#define CX2072X_PORTD_UNSOLICITED_RESPONSE		 0x6420
+++#define CX2072X_PORTD_PIN_SENSE				 0x6424
+++#define CX2072X_PORTD_GAIN_RIGHT			 0x6580
+++#define CX2072X_PORTD_GAIN_LEFT				 0x65a0
+++#define CX2072X_PORTE_CONNECTION_SELECT_CTRL		 0x7404
+++#define CX2072X_PORTE_POWER_STATE			 0x7414
+++#define CX2072X_PORTE_PIN_CTRL				 0x741c
+++#define CX2072X_PORTE_UNSOLICITED_RESPONSE		 0x7420
+++#define CX2072X_PORTE_PIN_SENSE				 0x7424
+++#define CX2072X_PORTE_EAPD_BTL				 0x7430
+++#define CX2072X_PORTE_GAIN_RIGHT			 0x7580
+++#define CX2072X_PORTE_GAIN_LEFT				 0x75a0
+++#define CX2072X_PORTF_POWER_STATE			 0x7814
+++#define CX2072X_PORTF_PIN_CTRL				 0x781c
+++#define CX2072X_PORTF_UNSOLICITED_RESPONSE		 0x7820
+++#define CX2072X_PORTF_PIN_SENSE				 0x7824
+++#define CX2072X_PORTF_GAIN_RIGHT			 0x7980
+++#define CX2072X_PORTF_GAIN_LEFT				 0x79a0
+++#define CX2072X_PORTG_POWER_STATE			 0x5c14
+++#define CX2072X_PORTG_PIN_CTRL				 0x5c1c
+++#define CX2072X_PORTG_CONNECTION_SELECT_CTRL		 0x5c04
+++#define CX2072X_PORTG_EAPD_BTL				 0x5c30
+++#define CX2072X_PORTM_POWER_STATE			 0x8814
+++#define CX2072X_PORTM_PIN_CTRL				 0x881c
+++#define CX2072X_PORTM_CONNECTION_SELECT_CTRL		 0x8804
+++#define CX2072X_PORTM_EAPD_BTL				 0x8830
+++#define CX2072X_MIXER_POWER_STATE			 0x5414
+++#define CX2072X_MIXER_GAIN_RIGHT_0			 0x5580
+++#define CX2072X_MIXER_GAIN_LEFT_0			 0x55a0
+++#define CX2072X_MIXER_GAIN_RIGHT_1			 0x5584
+++#define CX2072X_MIXER_GAIN_LEFT_1			 0x55a4
+++#define CX2072X_EQ_ENABLE_BYPASS			 0x6d00
+++#define CX2072X_EQ_B0_COEFF				 0x6d02
+++#define CX2072X_EQ_B1_COEFF				 0x6d04
+++#define CX2072X_EQ_B2_COEFF				 0x6d06
+++#define CX2072X_EQ_A1_COEFF				 0x6d08
+++#define CX2072X_EQ_A2_COEFF				 0x6d0a
+++#define CX2072X_EQ_G_COEFF				 0x6d0c
+++#define CX2072X_EQ_BAND					 0x6d0d
+++#define CX2072X_SPKR_DRC_ENABLE_STEP			 0x6d10
+++#define CX2072X_SPKR_DRC_CONTROL			 0x6d14
+++#define CX2072X_SPKR_DRC_TEST				 0X6D18
+++#define CX2072X_DIGITAL_BIOS_TEST0			 0x6d80
+++#define CX2072X_DIGITAL_BIOS_TEST2			 0x6d84
+++#define CX2072X_I2SPCM_CONTROL1				 0x6e00
+++#define CX2072X_I2SPCM_CONTROL2				 0x6e04
+++#define CX2072X_I2SPCM_CONTROL3				 0x6e08
+++#define CX2072X_I2SPCM_CONTROL4				 0x6e0c
+++#define CX2072X_I2SPCM_CONTROL5				 0x6e10
+++#define CX2072X_I2SPCM_CONTROL6				 0x6e18
+++#define CX2072X_UM_INTERRUPT_CRTL_E			 0x6e14
+++#define CX2072X_CODEC_TEST2				 0x7108
+++#define CX2072X_CODEC_TEST9				 0x7124
+++#define CX2072X_CODEC_TEST20				 0x7310
+++#define CX2072X_CODEC_TEST26				 0x7328
+++#define CX2072X_ANALOG_TEST3				 0x718c
+++#define CX2072X_ANALOG_TEST4				 0x7190
+++#define CX2072X_ANALOG_TEST5				 0x7194
+++#define CX2072X_ANALOG_TEST6				 0x7198
+++#define CX2072X_ANALOG_TEST7				 0x719c
+++#define CX2072X_ANALOG_TEST8				 0x71a0
+++#define CX2072X_ANALOG_TEST9				 0x71a4
+++#define CX2072X_ANALOG_TEST10				 0x71a8
+++#define CX2072X_ANALOG_TEST11				 0x71ac
+++#define CX2072X_ANALOG_TEST12				 0x71b0
+++#define CX2072X_ANALOG_TEST13				 0x71b4
+++#define CX2072X_DIGITAL_TEST0				 0x7200
+++#define CX2072X_DIGITAL_TEST1				 0x7204
+++#define CX2072X_DIGITAL_TEST11				 0x722c
+++#define CX2072X_DIGITAL_TEST12				 0x7230
+++#define CX2072X_DIGITAL_TEST15				 0x723c
+++#define CX2072X_DIGITAL_TEST16				 0x7080
+++#define CX2072X_DIGITAL_TEST17				 0x7084
+++#define CX2072X_DIGITAL_TEST18				 0x7088
+++#define CX2072X_DIGITAL_TEST19				 0x708c
+++#define CX2072X_DIGITAL_TEST20				 0x7090
+++
+++#define INVALID_GPIO -1
+++#define MAX_EQ_BAND 7
+++#define MAX_EQ_COEFF 11
+++#define MAX_DRC_REGS 9
+++#define MIC_EQ_COEFF 10
+++/* DAI interfae type*/
+++
+++#define CX2072X_DAI_HIFI 1
+++#define CX2072X_DAI_DSP  2
+++#define CX2072X_DAI_DSP_DUAL 4
+++/*4 ch, including mic and aec*/
+++#define CX2072X_DAI_DSP_PWM 3
+++
+++enum REG_SAMPLE_SIZE {
+++	SAMPLE_SIZE_8_BITS = 0,
+++	SAMPLE_SIZE_16_BITS = 1,
+++	SAMPLE_SIZE_24_BITS = 2,
+++	SAMPLE_SIZE_RESERVED = 3,
+++};
+++
+++union REG_I2SPCM_CTRL_REG1 {
+++	struct {
+++		u32 rx_data_one_line:1;
+++		u32 rx_ws_pol:1;
+++		u32 rx_ws_wid:7;
+++		u32 rx_frm_len:5;
+++		u32 rx_sa_size:2;
+++		u32 tx_data_one_line:1;
+++		u32 tx_ws_pol:1;
+++		u32 tx_ws_wid:7;
+++		u32 tx_frm_len:5;
+++		u32 tx_sa_size:2;
+++	} r;
+++	u32 ulval;
+++};
+++
+++
+++union REG_I2SPCM_CTRL_REG2 {
+++	struct {
+++		u32 tx_en_ch1:1;
+++		u32 tx_en_ch2:1;
+++		u32 tx_en_ch3:1;
+++		u32 tx_en_ch4:1;
+++		u32 tx_en_ch5:1;
+++		u32 tx_en_ch6:1;
+++		u32 tx_slot_1:5;
+++		u32 tx_slot_2:5;
+++		u32 tx_slot_3:5;
+++		u32 tx_slot_4:5;
+++		u32 res:1;
+++		u32 tx_data_neg_bclk:1;
+++		u32 tx_master:1;
+++		u32 tx_tri_n:1;
+++		u32 tx_endian_sel:1;
+++		u32 tx_dstart_dly:1;
+++	} r;
+++	u32 ulval;
+++};
+++
+++union REG_I2SPCM_CTRL_REG3 {
+++	struct {
+++		u32 rx_en_ch1:1;
+++		u32 rx_en_ch2:1;
+++		u32 rx_en_ch3:1;
+++		u32 rx_en_ch4:1;
+++		u32 rx_en_ch5:1;
+++		u32 rx_en_ch6:1;
+++		u32 rx_slot_1:5;
+++		u32 rx_slot_2:5;
+++		u32 rx_slot_3:5;
+++		u32 rx_slot_4:5;
+++		u32 res:1;
+++		u32 rx_data_neg_bclk:1;
+++		u32 rx_master:1;
+++		u32 rx_tri_n:1;
+++		u32 rx_endian_sel:1;
+++		u32 rx_dstart_dly:1;
+++	} r;
+++	u32 ulval;
+++};
+++
+++
+++union REG_I2SPCM_CTRL_REG4 {
+++	struct {
+++		u32 rx_mute:1;
+++		u32 tx_mute:1;
+++		u32 reserved:1;
+++		u32 dac_34_independent:1;
+++		u32 dac_bclk_lrck_share:1;
+++		u32 bclk_lrck_share_en:1;
+++		u32 reserved2:2;
+++		u32 rx_last_dac_ch_en:1;
+++		u32 rx_last_dac_ch:3;
+++		u32 tx_last_adc_ch_en:1;
+++		u32 tx_last_adc_ch:3;
+++		u32 rx_slot_5:5;
+++		u32 rx_slot_6:5;
+++		u32 reserved3:6;
+++	} r;
+++	u32 ulval;
+++};
+++
+++
+++union REG_I2SPCM_CTRL_REG5 {
+++	struct {
+++		u32 tx_slot_5:5;
+++		u32 reserved:3;
+++		u32 tx_slot_6:5;
+++		u32 reserved2:3;
+++		u32 reserved3:8;
+++		u32 i2s_pcm_clk_div:7;
+++		u32 i2s_pcm_clk_div_chan_en:1;
+++	} r;
+++	u32 ulval;
+++};
+++
+++union REG_I2SPCM_CTRL_REG6 {
+++	struct {
+++		u32 reserved:5;
+++		u32 rx_pause_cycles:3;
+++		u32 rx_pause_start_pos:8;
+++		u32 reserved2:5;
+++		u32 tx_pause_cycles:3;
+++		u32 tx_pause_start_pos:8;
+++	} r;
+++	u32 ulval;
+++};
+++
+++union REG_DIGITAL_BIOS_TEST2 {
+++	struct {
+++		u32 pull_down_eapd:2;
+++		u32 input_en_eapd_pad:1;
+++		u32 push_pull_mode:1;
+++		u32 eapd_pad_output_driver:2;
+++		u32 pll_source:1;
+++		u32 i2s_bclk_en:1;
+++		u32 i2s_bclk_invert:1;
+++		u32 pll_ref_clock:1;
+++		u32 class_d_shield_clk:1;
+++		u32 audio_pll_bypass_mode:1;
+++		u32 reserved:4;
+++	} r;
+++	u32 ulval;
+++};
+++
+++int cx2072x_set_bclk_ratio(struct snd_soc_dai *dai, unsigned int ratio);
+++#if (KERNEL_VERSION(4, 17, 0) <= LINUX_VERSION_CODE)
+++int cx2072x_enable_jack_detect(struct snd_soc_component *codec);
+++int cx2072x_get_jack_state(struct snd_soc_component *codec);
+++#else
+++int cx2072x_enable_jack_detect(struct snd_soc_codec *codec);
+++int cx2072x_get_jack_state(struct snd_soc_codec *codec);
+++#endif
++diff --git a/sound/soc/intel/boards/Kconfig b/sound/soc/intel/boards/Kconfig
++index 0a7e40d06395..7c7ce6d3e3f6 100644
++--- a/sound/soc/intel/boards/Kconfig
+++++ b/sound/soc/intel/boards/Kconfig
++@@ -136,6 +136,17 @@ config SND_SOC_INTEL_CHT_BSW_NAU8824_MACH
++ 	  Say Y or m if you have such a device. This is a recommended option.
++ 	  If unsure select "N".
++ 
+++config SND_SOC_INTEL_CHT_CX2072X_MACH
+++	tristate "Baytrail and Cherrytrail with CX2072X codec"
+++	depends on X86_INTEL_LPSS && I2C && ACPI
+++	select SND_SOC_ACPI
+++	select SND_SOC_CX2072X
+++	help
+++	  This adds support for ASoC machine driver for Intel(R) Cherrytrail & Braswell
+++	  platforms with Conexant CX2072X audio codec.
+++	  Say Y if you have such a device.
+++	  If unsure select "N".
+++
++ config SND_SOC_INTEL_BYT_CHT_DA7213_MACH
++ 	tristate "Baytrail & Cherrytrail with DA7212/7213 codec"
++ 	depends on X86_INTEL_LPSS && I2C && ACPI
++diff --git a/sound/soc/intel/boards/Makefile b/sound/soc/intel/boards/Makefile
++index bf072ea299b7..965cab777db7 100644
++--- a/sound/soc/intel/boards/Makefile
+++++ b/sound/soc/intel/boards/Makefile
++@@ -13,6 +13,7 @@ snd-soc-sst-cht-bsw-rt5672-objs := cht_bsw_rt5672.o
++ snd-soc-sst-cht-bsw-rt5645-objs := cht_bsw_rt5645.o
++ snd-soc-sst-cht-bsw-max98090_ti-objs := cht_bsw_max98090_ti.o
++ snd-soc-sst-cht-bsw-nau8824-objs := cht_bsw_nau8824.o
+++snd-soc-sst-cht-cx2072x-objs := cht_cx2072x.o
++ snd-soc-sst-byt-cht-da7213-objs := bytcht_da7213.o
++ snd-soc-sst-byt-cht-es8316-objs := bytcht_es8316.o
++ snd-soc-sst-byt-cht-nocodec-objs := bytcht_nocodec.o
++@@ -40,6 +41,7 @@ obj-$(CONFIG_SND_SOC_INTEL_CHT_BSW_RT5672_MACH) += snd-soc-sst-cht-bsw-rt5672.o
++ obj-$(CONFIG_SND_SOC_INTEL_CHT_BSW_RT5645_MACH) += snd-soc-sst-cht-bsw-rt5645.o
++ obj-$(CONFIG_SND_SOC_INTEL_CHT_BSW_MAX98090_TI_MACH) += snd-soc-sst-cht-bsw-max98090_ti.o
++ obj-$(CONFIG_SND_SOC_INTEL_CHT_BSW_NAU8824_MACH) += snd-soc-sst-cht-bsw-nau8824.o
+++obj-$(CONFIG_SND_SOC_INTEL_CHT_CX2072X_MACH) += snd-soc-sst-cht-cx2072x.o
++ obj-$(CONFIG_SND_SOC_INTEL_BYT_CHT_DA7213_MACH) += snd-soc-sst-byt-cht-da7213.o
++ obj-$(CONFIG_SND_SOC_INTEL_BYT_CHT_ES8316_MACH) += snd-soc-sst-byt-cht-es8316.o
++ obj-$(CONFIG_SND_SOC_INTEL_BYT_CHT_NOCODEC_MACH) += snd-soc-sst-byt-cht-nocodec.o
++diff --git a/sound/soc/intel/boards/cht_cx2072x.c b/sound/soc/intel/boards/cht_cx2072x.c
++new file mode 100644
++index 000000000000..c9bc8db2f126
++--- /dev/null
+++++ b/sound/soc/intel/boards/cht_cx2072x.c
++@@ -0,0 +1,336 @@
+++/*
+++ *  cht_cx207x.c - ASoc DPCM Machine driver for CherryTrail w/ CX2072x
+++ *
+++ *  Copyright (C) 2016 Intel Corp
+++ *  Author: Pierre-Louis Bossart <pierre-louis.bossart@linux.intel.com>
+++ *
+++ *  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+++ *
+++ *  This program is free software; you can redistribute it and/or modify
+++ *  it under the terms of the GNU General Public License as published by
+++ *  the Free Software Foundation; version 2 of the License.
+++ *
+++ *  This program is distributed in the hope that it will be useful, but
+++ *  WITHOUT ANY WARRANTY; without even the implied warranty of
+++ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+++ *  General Public License for more details.
+++ *
+++ * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+++ */
+++
+++#include <linux/init.h>
+++#include <linux/module.h>
+++#include <linux/platform_device.h>
+++#include <linux/acpi.h>
+++#include <linux/device.h>
+++#include <linux/slab.h>
+++#include <asm/platform_sst_audio.h>
+++#include <sound/pcm.h>
+++#include <sound/pcm_params.h>
+++#include <sound/soc.h>
+++#include <sound/jack.h>
+++#include <sound/soc-acpi.h>
+++#include "../../codecs/cx2072x.h"
+++#include "../atom/sst-atom-controls.h"
+++
+++static const struct snd_soc_dapm_widget cht_dapm_widgets[] = {
+++	SND_SOC_DAPM_HP("Headphone", NULL),
+++	SND_SOC_DAPM_MIC("Headset Mic", NULL),
+++	SND_SOC_DAPM_MIC("Int Mic", NULL),
+++	SND_SOC_DAPM_SPK("Ext Spk", NULL),
+++};
+++
+++static const struct snd_soc_dapm_route cht_audio_map[] = {
+++	/* External Speakers: HFL, HFR */
+++	{"Headphone", NULL, "PORTA"},
+++	{"Ext Spk", NULL, "PORTG"},
+++	{"PORTC", NULL, "Int Mic"},
+++	{"PORTD", NULL, "Headset Mic"},
+++
+++	{"Playback", NULL, "ssp2 Tx"},
+++	{"ssp2 Tx", NULL, "codec_out0"},
+++	{"ssp2 Tx", NULL, "codec_out1"},
+++	{"codec_in0", NULL, "ssp2 Rx"},
+++	{"codec_in1", NULL, "ssp2 Rx"},
+++	{"ssp2 Rx", NULL, "Capture"},
+++	{"ssp0 Tx", NULL, "modem_out"},
+++	{"modem_in", NULL, "ssp0 Rx"},
+++};
+++
+++static const struct snd_kcontrol_new cht_mc_controls[] = {
+++	SOC_DAPM_PIN_SWITCH("Headphone"),
+++	SOC_DAPM_PIN_SWITCH("Headset Mic"),
+++	SOC_DAPM_PIN_SWITCH("Int Mic"),
+++	SOC_DAPM_PIN_SWITCH("Ext Spk"),
+++};
+++
+++static int cht_aif1_hw_params(struct snd_pcm_substream *substream,
+++			     struct snd_pcm_hw_params *params)
+++{
+++	return 0;
+++}
+++
+++static struct snd_soc_jack cht_cx_headset;
+++
+++/* Headset jack detection DAPM pins */
+++static struct snd_soc_jack_pin cht_cx_headset_pins[] = {
+++	{
+++		.pin = "Headset Mic",
+++		.mask = SND_JACK_MICROPHONE,
+++	},
+++	{
+++		.pin = "Headphone",
+++		.mask = SND_JACK_HEADPHONE,
+++	},
+++};
+++
+++static const struct acpi_gpio_params headset_gpios = { 0, 0, false };
+++
+++static const struct acpi_gpio_mapping acpi_cht_cx2072x_gpios[] = {
+++	{ "headset-gpios", &headset_gpios, 1 },
+++	{},
+++};
+++
+++static int cht_cx_jack_status_check(void *data)
+++{
+++	return cx2072x_get_jack_state(data);
+++}
+++
+++static struct snd_soc_jack_gpio cht_cx_gpio = {
+++	.name = "headset",
+++	.report = SND_JACK_HEADSET | SND_JACK_BTN_0,
+++	.debounce_time = 150,
+++	.wake = true,
+++	.jack_status_check = cht_cx_jack_status_check,
+++};
+++
+++static int cht_codec_init(struct snd_soc_pcm_runtime *rtd)
+++{
+++	int ret;
+++	struct snd_soc_card *card = rtd->card;
+++	struct snd_soc_component *component = rtd->codec_dai->component;
+++
+++	if (devm_acpi_dev_add_driver_gpios(component->dev,
+++					   acpi_cht_cx2072x_gpios))
+++		dev_warn(rtd->dev, "Unable to add GPIO mapping table\n");
+++
+++	card->dapm.idle_bias_off = true;
+++
+++	/* set the default PLL rate, the clock is handled by the codec driver */
+++	ret = snd_soc_dai_set_sysclk(rtd->codec_dai, CX2072X_MCLK_EXTERNAL_PLL,
+++				     19200000, SND_SOC_CLOCK_IN);
+++	if (ret) {
+++		dev_err(rtd->dev, "Could not set sysclk\n");
+++		return ret;
+++	}
+++
+++	ret = snd_soc_card_jack_new(card, "Headset",
+++				    SND_JACK_HEADSET | SND_JACK_BTN_0,
+++				    &cht_cx_headset,
+++				    cht_cx_headset_pins,
+++				    ARRAY_SIZE(cht_cx_headset_pins));
+++	if (ret)
+++		return ret;
+++
+++	cht_cx_gpio.gpiod_dev = component->dev;
+++	cht_cx_gpio.data = component;
+++
+++	ret = snd_soc_jack_add_gpios(&cht_cx_headset, 1, &cht_cx_gpio);
+++	if (ret) {
+++		dev_err(rtd->dev, "Adding jack GPIO failed\n");
+++		return ret;
+++	}
+++
+++	cx2072x_enable_jack_detect(component);
+++
+++	return ret;
+++}
+++
+++static const struct snd_soc_pcm_stream cht_dai_params = {
+++	.formats = SNDRV_PCM_FMTBIT_S24_LE,
+++	.rate_min = 48000,
+++	.rate_max = 48000,
+++	.channels_min = 2,
+++	.channels_max = 2,
+++};
+++
+++static int cht_codec_fixup(struct snd_soc_pcm_runtime *rtd,
+++			    struct snd_pcm_hw_params *params)
+++{
+++	struct snd_interval *rate = hw_param_interval(params,
+++			SNDRV_PCM_HW_PARAM_RATE);
+++	struct snd_interval *channels = hw_param_interval(params,
+++						SNDRV_PCM_HW_PARAM_CHANNELS);
+++	int ret;
+++
+++	/* The DSP will covert the FE rate to 48k, stereo, 24bits */
+++	rate->min = rate->max = 48000;
+++	channels->min = channels->max = 2;
+++
+++	/* set SSP2 to 24-bit */
+++	params_set_format(params, SNDRV_PCM_FORMAT_S24_LE);
+++
+++	/*
+++	 * Default mode for SSP configuration is TDM 4 slot, override config
+++	 * with explicit setting to I2S 2ch 24-bit. The word length is set with
+++	 * dai_set_tdm_slot() since there is no other API exposed
+++	 */
+++	ret = snd_soc_dai_set_fmt(rtd->cpu_dai,
+++				SND_SOC_DAIFMT_I2S     |
+++				SND_SOC_DAIFMT_NB_NF   |
+++				SND_SOC_DAIFMT_CBS_CFS);
+++	if (ret < 0) {
+++		dev_err(rtd->dev, "can't set format to I2S, err %d\n", ret);
+++		return ret;
+++	}
+++
+++	ret = snd_soc_dai_set_tdm_slot(rtd->cpu_dai, 0x3, 0x3, 2, 24);
+++	if (ret < 0) {
+++		dev_err(rtd->dev, "can't set I2S config, err %d\n", ret);
+++		return ret;
+++	}
+++
+++	snd_soc_dai_set_bclk_ratio(rtd->codec_dai, 50);
+++	return 0;
+++}
+++
+++static const struct snd_soc_pcm_stream cht_cx_dai_params = {
+++	.formats = SNDRV_PCM_FMTBIT_S24_LE,
+++	.rate_min = 48000,
+++	.rate_max = 48000,
+++	.channels_min = 2,
+++	.channels_max = 2,
+++};
+++
+++static int cht_aif1_startup(struct snd_pcm_substream *substream)
+++{
+++	return snd_pcm_hw_constraint_single(substream->runtime,
+++					SNDRV_PCM_HW_PARAM_RATE, 48000);
+++}
+++
+++static struct snd_soc_ops cht_aif1_ops = {
+++	.startup = cht_aif1_startup,
+++};
+++
+++static struct snd_soc_ops cht_be_ssp2_ops = {
+++	.hw_params = cht_aif1_hw_params,
+++};
+++
+++static struct snd_soc_dai_link cht_dailink[] = {
+++	[MERR_DPCM_AUDIO] = {
+++		.name = "Audio Port",
+++		.stream_name = "Audio",
+++		.cpu_dai_name = "media-cpu-dai",
+++		.codec_dai_name = "snd-soc-dummy-dai",
+++		.codec_name = "snd-soc-dummy",
+++		.platform_name = "sst-mfld-platform",
+++		.nonatomic = true,
+++		.dynamic = 1,
+++		.dpcm_playback = 1,
+++		.dpcm_capture = 1,
+++		.ops = &cht_aif1_ops,
+++	},
+++	[MERR_DPCM_DEEP_BUFFER] = {
+++		.name = "Deep-Buffer Audio Port",
+++		.stream_name = "Deep-Buffer Audio",
+++		.cpu_dai_name = "deepbuffer-cpu-dai",
+++		.codec_dai_name = "snd-soc-dummy-dai",
+++		.codec_name = "snd-soc-dummy",
+++		.platform_name = "sst-mfld-platform",
+++		.nonatomic = true,
+++		.dynamic = 1,
+++		.dpcm_playback = 1,
+++		.ops = &cht_aif1_ops,
+++	},
+++	[MERR_DPCM_COMPR] = {
+++		.name = "Compressed Port",
+++		.stream_name = "Compress",
+++		.cpu_dai_name = "compress-cpu-dai",
+++		.codec_dai_name = "snd-soc-dummy-dai",
+++		.codec_name = "snd-soc-dummy",
+++		.platform_name = "sst-mfld-platform",
+++	},
+++	/* CODEC<->CODEC link */
+++	/* back ends */
+++	{
+++		.name = "SSP2-Codec",
+++		.id = 1,
+++		.cpu_dai_name = "ssp2-port",
+++		.platform_name = "sst-mfld-platform",
+++		.no_pcm = 1,
+++		.codec_dai_name = "cx2072x-hifi",
+++		.codec_name = "i2c-14F10720:00",
+++		.dai_fmt = SND_SOC_DAIFMT_I2S | SND_SOC_DAIFMT_NB_NF
+++					      | SND_SOC_DAIFMT_CBS_CFS,
+++		.init = cht_codec_init,
+++		.be_hw_params_fixup = cht_codec_fixup,
+++		.nonatomic = true,
+++		.dpcm_playback = 1,
+++		.dpcm_capture = 1,
+++		.ops = &cht_be_ssp2_ops,
+++	},
+++};
+++
+++/* SoC card */
+++static struct snd_soc_card chtcx2072x_card = {
+++	.name = "chtcx2072x",
+++	.dai_link = cht_dailink,
+++	.num_links = ARRAY_SIZE(cht_dailink),
+++	.dapm_widgets = cht_dapm_widgets,
+++	.num_dapm_widgets = ARRAY_SIZE(cht_dapm_widgets),
+++	.dapm_routes = cht_audio_map,
+++	.num_dapm_routes = ARRAY_SIZE(cht_audio_map),
+++	.controls = cht_mc_controls,
+++	.num_controls = ARRAY_SIZE(cht_mc_controls),
+++};
+++
+++static char cht_cx_codec_name[16]; /* i2c-<HID>:00 with HID being 8 chars */
+++
+++static int snd_cht_mc_probe(struct platform_device *pdev)
+++{
+++	int i;
+++	int dai_index;
+++	struct snd_soc_acpi_mach *mach = pdev->dev.platform_data;
+++	const char *i2c_name = NULL;
+++
+++	/* fix index of codec dai */
+++	dai_index = MERR_DPCM_COMPR + 1;
+++	for (i = 0; i < ARRAY_SIZE(cht_dailink); i++) {
+++		if (!strcmp(cht_dailink[i].codec_name, "i2c-14F10720:00")) {
+++			dai_index = i;
+++			break;
+++		}
+++	}
+++
+++	/* fixup codec name based on HID */
+++	i2c_name = acpi_dev_get_first_match_name(mach->id, NULL, -1);
+++	if (i2c_name) {
+++		snprintf(cht_cx_codec_name, sizeof(cht_cx_codec_name),
+++			"%s%s", "i2c-", i2c_name);
+++		cht_dailink[dai_index].codec_name = cht_cx_codec_name;
+++	}
+++
+++	/* register the soc card */
+++	chtcx2072x_card.dev = &pdev->dev;
+++	return devm_snd_soc_register_card(&pdev->dev, &chtcx2072x_card);
+++}
+++
+++static int snd_cht_mc_remove(struct platform_device *pdev)
+++{
+++	snd_soc_jack_free_gpios(&cht_cx_headset, 1, &cht_cx_gpio);
+++	return 0;
+++}
+++
+++static struct platform_driver snd_cht_mc_driver = {
+++	.driver = {
+++		.name = "cht-cx2072x",
+++	},
+++	.probe = snd_cht_mc_probe,
+++	.remove = snd_cht_mc_remove,
+++};
+++module_platform_driver(snd_cht_mc_driver);
+++
+++MODULE_DESCRIPTION("ASoC Intel(R) Cherrytrail Machine driver");
+++MODULE_AUTHOR("Pierre-Louis Bossart <pierre-louis.bossart@linux.intel.com>");
+++MODULE_LICENSE("GPL v2");
+++MODULE_ALIAS("platform:cht-cx2072x");
++diff --git a/sound/soc/intel/common/soc-acpi-intel-cht-match.c b/sound/soc/intel/common/soc-acpi-intel-cht-match.c
++index 91bb99b69601..1c2942d5eb0f 100644
++--- a/sound/soc/intel/common/soc-acpi-intel-cht-match.c
+++++ b/sound/soc/intel/common/soc-acpi-intel-cht-match.c
++@@ -117,6 +117,15 @@ struct snd_soc_acpi_mach  snd_soc_acpi_intel_cherrytrail_machines[] = {
++ 		.sof_tplg_filename = "intel/sof-cht-max98090.tplg",
++ 		.asoc_plat_name = "sst-mfld-platform",
++ 	},
+++	{
+++		.id = "14F10720",
+++		.drv_name = "cht-cx2072x",
+++		.fw_filename = "intel/fw_sst_22a8.bin",
+++		.board = "cht-bsw",
+++		.sof_fw_filename = "intel/reef-cht.ri",
+++		.sof_tplg_filename = "intel/reef-cht-cx2072cx.tplg",
+++		.asoc_plat_name = "sst-mfld-platform",
+++	},
++ 	{
++ 		.id = "10508824",
++ 		.drv_name = "cht-bsw-nau8824",
++-- 
++2.17.1
++
+diff --git a/configs/fedora/generic/CONFIG_SND_SOC_CX2072X b/configs/fedora/generic/CONFIG_SND_SOC_CX2072X
+new file mode 100644
+index 000000000..6361a9978
+--- /dev/null
++++ b/configs/fedora/generic/CONFIG_SND_SOC_CX2072X
+@@ -0,0 +1 @@
++# CONFIG_SND_SOC_CX2072X is not set
+diff --git a/configs/fedora/generic/CONFIG_SND_SOC_INTEL_CHT_CX2072X_MACH b/configs/fedora/generic/CONFIG_SND_SOC_INTEL_CHT_CX2072X_MACH
+new file mode 100644
+index 000000000..7f3ea8131
+--- /dev/null
++++ b/configs/fedora/generic/CONFIG_SND_SOC_INTEL_CHT_CX2072X_MACH
+@@ -0,0 +1 @@
++# CONFIG_SND_SOC_INTEL_CHT_CX2072X_MACH is not set
+diff --git a/configs/fedora/generic/x86/CONFIG_SND_SOC_CX2072X b/configs/fedora/generic/x86/CONFIG_SND_SOC_CX2072X
+new file mode 100644
+index 000000000..2c792a8ba
+--- /dev/null
++++ b/configs/fedora/generic/x86/CONFIG_SND_SOC_CX2072X
+@@ -0,0 +1 @@
++CONFIG_SND_SOC_CX2072X=m
+diff --git a/configs/fedora/generic/x86/CONFIG_SND_SOC_INTEL_CHT_CX2072X_MACH b/configs/fedora/generic/x86/CONFIG_SND_SOC_INTEL_CHT_CX2072X_MACH
+new file mode 100644
+index 000000000..f454ac7b0
+--- /dev/null
++++ b/configs/fedora/generic/x86/CONFIG_SND_SOC_INTEL_CHT_CX2072X_MACH
+@@ -0,0 +1 @@
++CONFIG_SND_SOC_INTEL_CHT_CX2072X_MACH=m
