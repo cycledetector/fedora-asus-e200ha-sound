@@ -39,7 +39,7 @@ and update the ```kernel.spec``` to include ```0001-asus-e200ha-Enable-sound.pat
 ```
 Change the buildid in the ```kernel.spec``` file from ```0001_asus_e200ha_Enable_sound.patch``` to a small identifier (if you do not do this the build will fail because the identifier is too long). I used the identifier ```cht```:
 ```
-sed -i 's/buildid .0001_asus_e200ha_Enable_sound.patch/buildid .cht/g' kernel.spect
+sed -i 's/buildid .0001_asus_e200ha_Enable_sound.patch/buildid .cht/g' kernel.spec
 ```
 Fetch any dependencies need for compilation:
 ```
