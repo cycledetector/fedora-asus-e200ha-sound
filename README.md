@@ -25,21 +25,21 @@ Switch to the Fedora 29 branch (type fedpkg switch-branch to list all the differ
 ```
 fedpkg switch-branch f29
 ```
-Move the patch ```fed29-asus-e200ha.patch``` to the current directory and apply it:
+Move the patch ```0001-set-configs-for-cx2072x.patch``` to the current directory and apply it:
 ```
-git apply fed29-asus-e200ha.patch
+git apply 0001-set-configs-for-cx2072x.patch
 ```
-This sets the proper configurations in the configs directory for compiling the kernel with cx2072x codec support and creates the patch ```0001-Enable-sound-on-asus-e200ha.patch``` in the same directory. Rebuild the configs for the kernels:
+This sets the proper configurations in the configs directory for compiling the kernel with cx2072x codec support. Rebuild the configs for the kernels:
 ```
 ./build_configs.sh
 ```
-and update the ```kernel.spec``` to include the newly created patch:
+and update the ```kernel.spec``` to include ```0001-asus-e200ha-Enable-sound.patch``` (do not apply this patch, just move it to the directory):
 ```
-./scripts/newpatch.sh 0001-Enable-sound-on-asus-e200ha.patch
+./scripts/newpatch.sh 0001-asus-e200ha-Enable-sound.patch
 ```
-Change the buildid in the ```kernel.spec``` file from ```0001-Enable-sound-on-asus-e200ha.patch``` to a small identifier (if you do not do this the build will fail because the identifier is too long). I used the identifier ```cht```:
+Change the buildid in the ```kernel.spec``` file from ```0001_asus_e200ha_Enable_sound.patch``` to a small identifier (if you do not do this the build will fail because the identifier is too long). I used the identifier ```cht```:
 ```
-%define buildid .cht
+sed -i 's/buildid .0001_asus_e200ha_Enable_sound.patch/buildid .cht/g' kernel.spect
 ```
 Fetch any dependencies need for compilation:
 ```
