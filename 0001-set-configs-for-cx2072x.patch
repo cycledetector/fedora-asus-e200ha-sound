@@ -1,0 +1,47 @@
+From c46fe9d350e2c00ca4d94e53b3bce67de10f2315 Mon Sep 17 00:00:00 2001
+From: builder <builder@localhost>
+Date: Tue, 23 Apr 2019 20:03:32 +0000
+Subject: [PATCH] set configs for cx2072x
+
+---
+ configs/fedora/generic/CONFIG_SND_SOC_CX2072X                    | 1 +
+ configs/fedora/generic/CONFIG_SND_SOC_INTEL_CHT_CX2072X_MACH     | 1 +
+ configs/fedora/generic/x86/CONFIG_SND_SOC_CX2072X                | 1 +
+ configs/fedora/generic/x86/CONFIG_SND_SOC_INTEL_CHT_CX2072X_MACH | 1 +
+ 4 files changed, 4 insertions(+)
+ create mode 100644 configs/fedora/generic/CONFIG_SND_SOC_CX2072X
+ create mode 100644 configs/fedora/generic/CONFIG_SND_SOC_INTEL_CHT_CX2072X_MACH
+ create mode 100644 configs/fedora/generic/x86/CONFIG_SND_SOC_CX2072X
+ create mode 100644 configs/fedora/generic/x86/CONFIG_SND_SOC_INTEL_CHT_CX2072X_MACH
+
+diff --git a/configs/fedora/generic/CONFIG_SND_SOC_CX2072X b/configs/fedora/generic/CONFIG_SND_SOC_CX2072X
+new file mode 100644
+index 000000000..6361a9978
+--- /dev/null
++++ b/configs/fedora/generic/CONFIG_SND_SOC_CX2072X
+@@ -0,0 +1 @@
++# CONFIG_SND_SOC_CX2072X is not set
+diff --git a/configs/fedora/generic/CONFIG_SND_SOC_INTEL_CHT_CX2072X_MACH b/configs/fedora/generic/CONFIG_SND_SOC_INTEL_CHT_CX2072X_MACH
+new file mode 100644
+index 000000000..7f3ea8131
+--- /dev/null
++++ b/configs/fedora/generic/CONFIG_SND_SOC_INTEL_CHT_CX2072X_MACH
+@@ -0,0 +1 @@
++# CONFIG_SND_SOC_INTEL_CHT_CX2072X_MACH is not set
+diff --git a/configs/fedora/generic/x86/CONFIG_SND_SOC_CX2072X b/configs/fedora/generic/x86/CONFIG_SND_SOC_CX2072X
+new file mode 100644
+index 000000000..2c792a8ba
+--- /dev/null
++++ b/configs/fedora/generic/x86/CONFIG_SND_SOC_CX2072X
+@@ -0,0 +1 @@
++CONFIG_SND_SOC_CX2072X=m
+diff --git a/configs/fedora/generic/x86/CONFIG_SND_SOC_INTEL_CHT_CX2072X_MACH b/configs/fedora/generic/x86/CONFIG_SND_SOC_INTEL_CHT_CX2072X_MACH
+new file mode 100644
+index 000000000..f454ac7b0
+--- /dev/null
++++ b/configs/fedora/generic/x86/CONFIG_SND_SOC_INTEL_CHT_CX2072X_MACH
+@@ -0,0 +1 @@
++CONFIG_SND_SOC_INTEL_CHT_CX2072X_MACH=m
+-- 
+2.20.1
+
