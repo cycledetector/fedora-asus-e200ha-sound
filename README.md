@@ -52,7 +52,7 @@ zcat /proc/config.gz >.config
 make oldconfig
 make menuconfig
 ```
-Now you are ready to compile. You can either use ```fast-build.sh```:
+Now you are ready to compile. You can execute the script ``scripts/fast-build.sh```:
 ```
 fedpkg srpm
 ./scripts/fast-build.sh x86_64 kernel-{the version of the kernel to be compiled and buildid}.src.rpm
@@ -61,7 +61,13 @@ to build the kernel without debugging information, perf or tools. Otherwise exec
 ```
 fedpkg local
 ```
-to build both debug and release kernels.
+to build both debug and release kernels. Another option for fedpkg is to run:
+```
+fedpkg local --with baseonly --without debuginfo
+```
+to compile only the release kernel.
+
+If you are building the rawhide branch and debugging is not needed, remember to run ```make release``` before ```fedpkg local``` since all master branch kernels are built with debugging capabilities by default.
 
 **If you build the kernel with ```fedpkg local``` and you haven't changed the configuration of the kernel to reduce the drivers that are going to be built, you will need at least 64GB of space.** 
 
