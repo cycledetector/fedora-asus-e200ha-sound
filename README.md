@@ -1,6 +1,6 @@
 # How to enable sound for the Asus E200HA ultrabook in the Fedora kernel
 
-For the time being I will only provide the instructions for building the kernel. In the future I will also provide the dockerfile to build the kernel using docker.
+For the time being I will only provide the instructions for building the kernel. In the future I will also provide the dockerfile and docker image to build the kernel using docker.
 
 These instructions have been verified for Fedora 29 and kernel 5.0.9 (x86_64).
 
